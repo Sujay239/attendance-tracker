@@ -219,3 +219,5 @@ The application strictly persists all data into local JSON files in the `/data` 
 
 **sujay kumar kotal**  
 *Attendance & Time Balance Tracker* — Implemented from Google Stitch Project `1921746099640358119`.
+#   a t t e n d a n c e - t r a c k e r  
+ 
