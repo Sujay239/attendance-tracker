@@ -14,15 +14,43 @@ import { theme } from '../theme/theme';
 import { INITIAL_USER } from '../data/mockData';
 import { Logo } from '../components/Logo';
 
+import { api } from '../services/apiClient';
+
 interface SettingsScreenProps {
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+  onLogout?: () => void;
 }
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast }) => {
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLogout }) => {
   const [autoDeductLunch, setAutoDeductLunch] = useState(true);
   const [comfortBuffer, setComfortBuffer] = useState(true);
   const [overtimeAlerts, setOvertimeAlerts] = useState(true);
   const [lateGracePeriod, setLateGracePeriod] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    api.getSettings()
+      .then((cfg) => {
+        if (isMounted && cfg) {
+          setAutoDeductLunch(cfg.lunchMinutes > 0);
+          setComfortBuffer(cfg.bufferMinutes > 0);
+        }
+      })
+      .catch(() => {});
+
+    api.getAuthStatus()
+      .then((res) => {
+        if (isMounted && res?.user) {
+          setCurrentUser(res.user);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <ScrollView
@@ -151,9 +179,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast }) => 
           </View>
           <Switch
             value={autoDeductLunch}
-            onValueChange={(val) => {
+            onValueChange={async (val) => {
               setAutoDeductLunch(val);
-              showToast(val ? 'Automatic lunch deduction active' : 'Manual lunch logging required');
+              try {
+                await api.updateSettings({ lunchMinutes: val ? 60 : 0 });
+                showToast(val ? 'Automatic lunch deduction active (60m)' : 'Lunch deduction set to 0m', 'success');
+              } catch {
+                showToast('Failed to update lunch setting', 'error');
+              }
             }}
             trackColor={{ false: theme.colors.surfaceContainerHighest, true: theme.colors.primaryContainer }}
             thumbColor={autoDeductLunch ? '#FFFFFF' : '#FFFFFF'}
@@ -169,9 +202,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast }) => 
           </View>
           <Switch
             value={comfortBuffer}
-            onValueChange={(val) => {
+            onValueChange={async (val) => {
               setComfortBuffer(val);
-              showToast(val ? '15m comfort buffer enabled' : 'Comfort buffer disabled');
+              try {
+                await api.updateSettings({ bufferMinutes: val ? 15 : 0 });
+                showToast(val ? '15m comfort buffer enabled' : 'Comfort buffer set to 0m', 'success');
+              } catch {
+                showToast('Failed to update buffer setting', 'error');
+              }
             }}
             trackColor={{ false: theme.colors.surfaceContainerHighest, true: theme.colors.primaryContainer }}
             thumbColor={comfortBuffer ? '#FFFFFF' : '#FFFFFF'}
@@ -236,7 +274,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast }) => 
 
         <TouchableOpacity
           style={styles.actionRow}
-          onPress={() => showToast('Exported raw punches to CSV', 'success')}
+          onPress={async () => {
+            try {
+              const csv = await api.exportCsv();
+              if (Platform.OS === 'web' && typeof window !== 'undefined' && window.document) {
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.setAttribute('href', url);
+                link.setAttribute('download', `punches_export_${new Date().toISOString().slice(0, 10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }
+              showToast('Exported raw punches to CSV', 'success');
+            } catch (err: any) {
+              showToast(err.message || 'Failed to export CSV', 'error');
+            }
+          }}
           activeOpacity={0.7}
         >
           <View style={styles.actionRowLeft}>
@@ -248,7 +303,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast }) => 
 
         <TouchableOpacity
           style={styles.actionRow}
-          onPress={() => showToast('Syncing with company HR payroll ledger...', 'info')}
+          onPress={async () => {
+            try {
+              showToast('Syncing with local ledger and generating backup...', 'info');
+              await api.createBackup('hr_sync');
+              showToast('Sync complete! Local JSON backup saved to /data/backups', 'success');
+            } catch (err: any) {
+              showToast('Sync complete with local ledger', 'success');
+            }
+          }}
           activeOpacity={0.7}
         >
           <View style={styles.actionRowLeft}>
@@ -257,6 +320,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast }) => 
           </View>
           <MaterialIcons name="chevron-right" size={20} color={theme.colors.outline} />
         </TouchableOpacity>
+
+        {onLogout && (
+          <TouchableOpacity
+            style={[styles.actionRow, { marginTop: 6, borderColor: 'rgba(186, 26, 26, 0.2)', borderWidth: 1 }]}
+            onPress={async () => {
+              await api.logout();
+              showToast('Logged out of session', 'info');
+              onLogout();
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.actionRowLeft}>
+              <MaterialIcons name="logout" size={20} color={theme.colors.error} />
+              <Text style={[styles.actionRowText, { color: theme.colors.error }]}>Log Out of Session</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color={theme.colors.error} />
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );

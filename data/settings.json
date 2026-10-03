@@ -1,0 +1,15 @@
+{
+  "workStartTime": "10:00",
+  "workEndTime": "19:00",
+  "lunchMinutes": 60,
+  "bufferMinutes": 15,
+  "requiredProductiveMinutes": 465,
+  "workingDays": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "timezone": "Asia/Kolkata"
+}

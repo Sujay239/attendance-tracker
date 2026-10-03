@@ -94,56 +94,121 @@
 
 ### Running the App Locally
 
-1. **Start the development server:**
+1. **Run Full Stack (API + Web Frontend concurrently):**
    ```bash
-   npm start
+   npm run dev
    ```
+   *Launches the Express backend on `http://localhost:3001` and Expo Web on `http://localhost:8081`.*
 
-2. **Run in Web Browser:**
+2. **Run Individual Services:**
+   - **Backend API only:**
+     ```bash
+     npm run server
+     ```
+   - **Expo Web client only:**
+     ```bash
+     npm run web
+     ```
+   - **Android Emulator / Device:**
+     ```bash
+     npm run android
+     ```
+   - **iOS Simulator (macOS only):**
+     ```bash
+     npm run ios
+     ```
+
+3. **Run Automated Test Suite:**
    ```bash
-   npm run web
+   npm test
    ```
-   *Press `w` in terminal to launch the web preview.*
+   *Executes all canonical calculation tests (Tests 1–5 from specification + cumulative balance propagation chain).*
 
-3. **Run on Android Emulator / Device:**
-   ```bash
-   npm run android
-   ```
+---
 
-4. **Run on iOS Simulator (macOS only):**
-   ```bash
-   npm run ios
-   ```
+## 🗄️ Persistence Layer & Local Architecture
 
-5. **Run on Mobile via Expo Go:**
-   - Install the **Expo Go** app on your iOS or Android device.
-   - Scan the QR code displayed in your terminal after running `npm start`.
+The application strictly persists all data into local JSON files in the `/data` directory without requiring any external databases or cloud services:
+
+```text
+/data
+├── settings.json       # Configured shift window, lunch (60m), buffer (15m), goal (465m), timezone
+├── user.json           # Single-user credentials with secure PBKDF2 password hashing & salt
+├── attendance.json     # Chronological punch sessions with exact timestamps & metrics
+├── balance.json        # Running cumulative net balance & canonical state
+└── backups/            # Timestamped JSON backups created on corrections & exports
+```
+
+### Core Business Logic Rules
+- **Office Duration:** `clockOut - clockIn`
+- **Deductions:** `60 min` Lunch + `15 min` Comfort Buffer = `75 min` total deductions
+- **Productive Duration:** `officeMinutes - 75`
+- **Target Duration:** `465 minutes` (7 hours 45 minutes)
+- **Daily Balance:** `productiveMinutes - 465`
+- **Cumulative Chain:** Recalculates dynamically from chronological order; historical adjustment propagates to all subsequent days.
+- **One Punch Per Day:** Strict guard prevents duplicate clock-ins once a session is completed.
+
+---
+
+## 📡 REST API Endpoints (`http://localhost:3001/api`)
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/auth/status` | Check if initial user setup is needed |
+| `POST` | `/api/auth/setup` | Register the initial single user |
+| `POST` | `/api/auth/login` | Authenticate using password |
+| `GET` | `/api/auth/session` | Validate session token persistence |
+| `GET` | `/api/dashboard` | Aggregated payload for instant dashboard telemetry |
+| `POST` | `/api/attendance/clock-in` | Punch-in with early/late calculation |
+| `POST` | `/api/attendance/clock-out` | Punch-out with core time & balance calculations |
+| `POST` | `/api/attendance/adjust` | Submit historical adjustment & recalculate chain |
+| `GET` | `/api/attendance` | Full attendance history with optional filters |
+| `GET` | `/api/attendance/calendar` | 31-day status matrix for month |
+| `GET` | `/api/analytics` | 5-day weekly bars, trend curves, cadence, manager summary |
+| `GET` | `/api/settings` | Retrieve active work parameters |
+| `PUT` | `/api/settings` | Update settings without corrupting historical records |
+| `GET` | `/api/export/csv` | Download RFC-4180 compliant CSV timesheet |
+| `POST` | `/api/backups` | Generate timestamped snapshot of JSON database |
 
 ---
 
 ## 📂 Project Directory Structure
 
 ```
-├── App.tsx                     # Main App component with navigation, tabs, modals, and toasts
+├── App.tsx                     # Main App component with navigation, tabs, modals, auth, and state
 ├── app.json                    # Expo metadata (Name: Attendance & Time Balance Tracker)
 ├── package.json                # Dependencies and author: sujay kumar kotal
 ├── tsconfig.json               # TypeScript configuration
+├── data/                       # Local JSON database & backups
+├── server/                     # Lightweight Express API backend
+│   ├── types.ts                # TypeScript data models and API response types
+│   ├── timeUtils.ts            # Asia/Kolkata timezone handling, 12h/24h parsing, formatting
+│   ├── attendanceCalculator.ts # Canonical calculation engine & cumulative chain builder
+│   ├── storageService.ts       # Atomic JSON file writes (.tmp -> rename), defaults & backups
+│   ├── authService.ts          # Single-user PBKDF2 hashing, session tokens, setup/login
+│   ├── attendanceService.ts    # Clock-in, clock-out, adjustment, dashboard & calendar aggregation
+│   ├── analyticsService.ts     # Weekly bars, progressive trend points, cadence metrics
+│   ├── routes.ts               # Express REST router
+│   ├── index.ts                # Server entry point (port 3001)
+│   └── __tests__/              # Automated test suite (all 6 tests passing)
 ├── src/
-│   ├── components/
+│   ├── components/             # Reusable UI components & modals
 │   │   ├── AdjustmentModal.tsx # Slide-up sheet to submit time adjustments
+│   │   ├── AuthModal.tsx       # Passcode unlock and initial setup modal
 │   │   ├── BottomNav.tsx       # Docked 5-tab navigation bar
 │   │   ├── ClockOutModal.tsx   # Slide-up sheet to confirm clock-out
 │   │   ├── Header.tsx          # Top branding header with live status & avatar
 │   │   ├── Logo.tsx            # SVG TimeTrack logo
 │   │   └── Toast.tsx           # Floating notification toast
-│   ├── data/
-│   │   └── mockData.ts         # Stitch dataset (calendar days, records, analytics, user)
-│   ├── screens/
+│   ├── data/                   # Initial reference datasets
+│   ├── screens/                # The 5 primary screens matching Stitch
 │   │   ├── AnalyticsScreen.tsx # KPI hero, SVG trend curve, bar chart, and snippet
 │   │   ├── CalendarScreen.tsx  # 7-column grid, day detail card, and bento stats
 │   │   ├── DashboardScreen.tsx # Live telemetry, circular gauge, balance card
 │   │   ├── HistoryScreen.tsx   # Filterable punch cards & expandable timeline
 │   │   └── SettingsScreen.tsx  # Author info (sujay kumar kotal), rules, & exports
+│   ├── services/
+│   │   └── apiClient.ts        # Unified HTTP client with session token persistence
 │   └── theme/
 │       └── theme.ts            # Stitch color palette, spacing, and typography tokens
 ```

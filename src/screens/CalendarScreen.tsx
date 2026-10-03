@@ -11,6 +11,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
 import { CalendarDay, INITIAL_CALENDAR_DAYS } from '../data/mockData';
 
+import { api } from '../services/apiClient';
+
 interface CalendarScreenProps {
   onOpenAdjustment: (date: string) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -21,6 +23,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
   showToast,
 }) => {
   const [currentMonth, setCurrentMonth] = useState('October 2026');
+  const [monthKey, setMonthKey] = useState('2026-10');
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>(INITIAL_CALENDAR_DAYS);
 
@@ -28,6 +31,46 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
   const [selectedDay, setSelectedDay] = useState<CalendarDay>(
     calendarDays.find((d) => d.day === 23 && d.status === 'active') || calendarDays[25]
   );
+
+  React.useEffect(() => {
+    let isMounted = true;
+    api.getCalendar(monthKey)
+      .then((data) => {
+        if (isMounted && data && Array.isArray(data) && data.length > 0) {
+          // Map to CalendarDay
+          const mapped: CalendarDay[] = data.map((d: any) => ({
+            day: d.day,
+            weekday: d.weekday,
+            dateStr: d.date,
+            status: d.status.toLowerCase() as any,
+            delta: d.deltaStr,
+            inTime: d.inTime || undefined,
+            outTime: d.outTime || undefined,
+            worked: d.productiveTime || undefined,
+            progressPercent: d.progressPercent,
+          }));
+
+          // prepend Sept offset days for Oct 2026 alignment (28, 29, 30)
+          if (monthKey === '2026-10') {
+            const offsets: CalendarDay[] = [
+              { day: 28, weekday: 'Mon', dateStr: 'Sep 28', status: 'offset' },
+              { day: 29, weekday: 'Tue', dateStr: 'Sep 29', status: 'offset' },
+              { day: 30, weekday: 'Wed', dateStr: 'Sep 30', status: 'offset' },
+            ];
+            setCalendarDays([...offsets, ...mapped]);
+          } else {
+            setCalendarDays(mapped);
+          }
+        }
+      })
+      .catch(() => {
+        // Fallback silently to initial
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [monthKey]);
 
   const handleDaySelect = (day: CalendarDay) => {
     if (day.status === 'offset') return;
@@ -52,6 +95,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             style={styles.navChevronBtn}
             onPress={() => {
               setCurrentMonth('September 2026');
+              setMonthKey('2026-09');
               showToast('Switched to September 2026 records');
             }}
             activeOpacity={0.7}
@@ -68,6 +112,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             style={styles.navChevronBtn}
             onPress={() => {
               setCurrentMonth('November 2026');
+              setMonthKey('2026-11');
               showToast('November schedule loaded');
             }}
             activeOpacity={0.7}

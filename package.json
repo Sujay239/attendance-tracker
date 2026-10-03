@@ -6,9 +6,12 @@
   "main": "index.ts",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "cors": "^2.8.6",
     "expo": "~57.0.26",
     "expo-linear-gradient": "~57.0.2",
     "expo-status-bar": "~57.0.1",
+    "express": "^5.2.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -17,14 +20,21 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/react": "~19.2.2",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "server": "tsx server/index.ts",
+    "test": "tsx server/__tests__/attendance.test.ts",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,magenta.bold\" \"npm run server\" \"npm run web\""
   },
   "private": true
 }

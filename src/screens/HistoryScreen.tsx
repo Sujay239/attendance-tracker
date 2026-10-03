@@ -12,6 +12,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
 import { AttendanceRecord, INITIAL_RECORDS } from '../data/mockData';
 
+import { api } from '../services/apiClient';
+
 interface HistoryScreenProps {
   onOpenAdjustment: (date: string) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -25,6 +27,75 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   const [activeFilter, setActiveFilter] = useState<'all' | 'extra' | 'deficit' | 'balanced' | 'missing'>('all');
   const [records, setRecords] = useState<AttendanceRecord[]>(INITIAL_RECORDS);
   const [expandedId, setExpandedId] = useState<string>('rec-2');
+
+  React.useEffect(() => {
+    let isMounted = true;
+    api.getAttendance()
+      .then((data) => {
+        if (isMounted && data && Array.isArray(data) && data.length > 0) {
+          const mapped: AttendanceRecord[] = data.map((r: any) => {
+            const inTimeStr = r.clockIn ? (r.clockIn.length > 10 ? new Date(r.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockIn) : '10:00 AM';
+            const outTimeStr = r.clockOut ? (r.clockOut.length > 10 ? new Date(r.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockOut) : (r.status === 'WORKING' ? 'In Progress' : 'Unrecorded');
+            const officeStr = `${Math.floor((r.officeMinutes || 0) / 60)}h ${Math.abs((r.officeMinutes || 0) % 60).toString().padStart(2, '0')}m`;
+            const productiveStr = `${Math.floor((r.productiveMinutes || 0) / 60)}h ${Math.abs((r.productiveMinutes || 0) % 60).toString().padStart(2, '0')}m`;
+
+            let recStatus: AttendanceRecord['status'] = 'balanced';
+            let statusLabel = 'Balanced (0m)';
+            let statusBadgeColor = '#737686';
+
+            if (r.status === 'WORKING') {
+              recStatus = 'active';
+              statusLabel = 'Working';
+              statusBadgeColor = '#004AC6';
+            } else if (r.status === 'MISSING_CLOCK_OUT') {
+              recStatus = 'missing';
+              statusLabel = 'Missing Punch';
+              statusBadgeColor = '#D52022';
+            } else if (r.dailyBalanceMinutes > 0) {
+              recStatus = 'extra';
+              statusLabel = `+${r.dailyBalanceMinutes} min Extra`;
+              statusBadgeColor = '#006C4A';
+            } else if (r.dailyBalanceMinutes < 0) {
+              recStatus = 'deficit';
+              statusLabel = `${r.dailyBalanceMinutes} min Adjust`;
+              statusBadgeColor = '#AE0010';
+            }
+
+            return {
+              id: r.id || r.date,
+              dateStr: r.date,
+              dayLabel: r.date,
+              weekday: new Date(r.date).toLocaleDateString('en-US', { weekday: 'long' }),
+              isToday: r.status === 'WORKING',
+              status: recStatus,
+              statusLabel,
+              statusBadgeColor,
+              inTime: inTimeStr,
+              outTime: outTimeStr,
+              officeDuration: officeStr,
+              productiveDuration: productiveStr,
+              deltaStr: r.dailyBalanceMinutes > 0 ? `+${r.dailyBalanceMinutes} min` : r.dailyBalanceMinutes < 0 ? `${r.dailyBalanceMinutes} min` : '0m',
+              notes: r.notes || '',
+              timeline: r.id === '2026-10-02' ? INITIAL_RECORDS[1]?.timeline : undefined,
+              breakdown: {
+                grossTime: officeStr,
+                deductions: `−${Math.floor(((r.lunchMinutes || 60) + (r.bufferMinutes || 15)) / 60)}h ${((r.lunchMinutes || 60) + (r.bufferMinutes || 15)) % 60}m`,
+                netProductive: productiveStr,
+                requiredTarget: `${Math.floor((r.requiredProductiveMinutes || 465) / 60)}h ${(r.requiredProductiveMinutes || 465) % 60}m`,
+                dayBalance: r.dailyBalanceMinutes >= 0 ? `+${r.dailyBalanceMinutes} min` : `${r.dailyBalanceMinutes} min`,
+                cumulativeBalance: `${r.cumulativeBalanceMinutes >= 0 ? '+' : ''}${r.cumulativeBalanceMinutes ?? 0} min`,
+              },
+            };
+          });
+          setRecords(mapped);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredRecords = records.filter((rec) => {
     // Filter chip check

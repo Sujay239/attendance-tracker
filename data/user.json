@@ -1,0 +1,9 @@
+{
+  "id": "local-user",
+  "name": "sujay kumar kotal",
+  "email": "sujay@tracker.internal",
+  "passwordHash": "f95abf1f700ab002f04704d1c360ac32df25bcb2a6135cdb003da85c8a537c613e72e75ef314a650ee1dc1aa0f2eb0a09b06e6be0614dcfb406bc0b4f3a6a84f",
+  "salt": "2794ff3160535cf490062ee0df4fbc75",
+  "createdAt": "2026-10-03T08:48:11.090Z",
+  "lastLoginAt": "2026-10-03T08:49:54.421Z"
+}

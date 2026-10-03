@@ -14,8 +14,10 @@ import { theme } from '../theme/theme';
 import { INITIAL_USER, INITIAL_RECORDS } from '../data/mockData';
 
 interface DashboardScreenProps {
+  dashboardData?: any;
   onClockOutPress: () => void;
   onNavigateHistory: () => void;
+  onOpenAdjustment?: (date: string) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   isClockedIn: boolean;
   onTakeBreak: () => void;
@@ -23,8 +25,10 @@ interface DashboardScreenProps {
 }
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
+  dashboardData,
   onClockOutPress,
   onNavigateHistory,
+  onOpenAdjustment,
   showToast,
   isClockedIn,
   onTakeBreak,
@@ -34,7 +38,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   const [seconds, setSeconds] = useState(12);
   const [minutes, setMinutes] = useState(24);
   const [hours, setHours] = useState(6);
-  const [currentTimeStr, setCurrentTimeStr] = useState('4:32 PM');
+  const [currentTimeStr, setCurrentTimeStr] = useState('4:32:15 PM');
+
+  const clockInIso = dashboardData?.todayRecord?.clockIn;
+  const missingPunches = dashboardData?.missingClockOuts || [];
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -47,7 +54,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       h = h % 12 || 12;
       setCurrentTimeStr(`${h}:${m}:${s} ${ampm}`);
 
-      if (isClockedIn) {
+      if (isClockedIn && clockInIso) {
+        const inDate = new Date(clockInIso);
+        const elapsedSecs = Math.max(0, Math.floor((now.getTime() - inDate.getTime()) / 1000));
+        // deductions 75 min = 4500 seconds
+        const productiveSecs = Math.max(0, elapsedSecs - 75 * 60);
+        setHours(Math.floor(productiveSecs / 3600));
+        setMinutes(Math.floor((productiveSecs % 3600) / 60));
+        setSeconds(productiveSecs % 60);
+      } else if (isClockedIn) {
         setSeconds((prev) => {
           if (prev >= 59) {
             setMinutes((mPrev) => {
@@ -65,17 +80,23 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isClockedIn]);
+  }, [isClockedIn, clockInIso]);
 
   const formattedHours = hours.toString().padStart(2, '0');
   const formattedMins = minutes.toString().padStart(2, '0');
   const formattedSecs = seconds.toString().padStart(2, '0');
 
-  // SVG Gauge calculations
+  // Gauge calculations
   const radius = 24;
   const circumference = 2 * Math.PI * radius; // ~150.8
-  const targetPercent = 0.82;
-  const strokeDashoffset = circumference * (1 - targetPercent);
+  const totalProductiveMinutes = hours * 60 + minutes;
+  const requiredProductiveMinutes = dashboardData?.requiredMinutes || 465;
+  const targetPercent = Math.min(1, Math.max(0, totalProductiveMinutes / requiredProductiveMinutes));
+  const strokeDashoffset = circumference * (1 - (targetPercent || 0.82));
+  const percentDisplay = Math.round((targetPercent || 0.82) * 100);
+
+  const cumulativeBalance = dashboardData?.cumulativeBalanceMinutes ?? 39;
+  const balanceSign = cumulativeBalance >= 0 ? `+${cumulativeBalance}` : `${cumulativeBalance}`;
 
   return (
     <ScrollView
@@ -88,7 +109,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         <View style={styles.greetingLeft}>
           <View style={styles.dateBadge}>
             <MaterialIcons name="wb-sunny" size={14} color={theme.colors.primary} />
-            <Text style={styles.dateBadgeText}>Friday, Oct 3, 2026</Text>
+            <Text style={styles.dateBadgeText}>
+              {dashboardData?.date ? `Today, ${dashboardData.date}` : 'Friday, Oct 3, 2026'}
+            </Text>
           </View>
           <Text style={styles.greetingTitle}>Good afternoon, Sarah</Text>
         </View>
@@ -99,6 +122,23 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         </View>
       </View>
 
+      {/* Missing Clock-Out Alert Banner if any past shifts unclosed */}
+      {missingPunches.length > 0 && (
+        <TouchableOpacity
+          style={[styles.lateBanner, { backgroundColor: '#FFECE2', borderColor: theme.colors.tertiaryBright, borderWidth: 1 }]}
+          onPress={() => onOpenAdjustment && onOpenAdjustment(missingPunches[0].date)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.lateBannerLeft}>
+            <MaterialIcons name="warning" size={18} color={theme.colors.tertiaryBright} />
+            <Text style={[styles.lateInfoText, { color: theme.colors.tertiaryBright }]}>
+              Missing clock-out on {missingPunches[0].date}. Tap to correct.
+            </Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={theme.colors.tertiaryBright} />
+        </TouchableOpacity>
+      )}
+
       {/* 2. Smart Status / Late Clock-In Pill Banner */}
       <View style={styles.lateBanner}>
         <View style={styles.lateBannerLeft}>
@@ -107,12 +147,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             {isClockedIn ? 'Currently Working' : 'Shift Completed'}
           </Text>
           <Text style={styles.lateSeparator}>•</Text>
-          <Text style={styles.lateInfoText}>8m Late (10:08 vs 10:00)</Text>
+          <Text style={styles.lateInfoText}>
+            {dashboardData?.lateMinutes
+              ? `${dashboardData.lateMinutes}m Late (${dashboardData.clockIn || '10:08'} vs 10:00)`
+              : '8m Late (10:08 vs 10:00)'}
+          </Text>
         </View>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() =>
-            showToast('Clock-in occurred at 10:08 AM. Standard window began at 10:00 AM.')
+            showToast(
+              `Clock-in occurred at ${dashboardData?.clockIn || '10:08 AM'}. Standard window began at 10:00 AM.`
+            )
           }
           style={styles.infoBtn}
         >
@@ -164,7 +210,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               />
             </Svg>
             <View style={styles.gaugeCenterText}>
-              <Text style={styles.gaugePercent}>82%</Text>
+              <Text style={styles.gaugePercent}>{percentDisplay}%</Text>
             </View>
           </View>
         </View>
@@ -172,7 +218,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         {/* Progress Bar & Projections */}
         <View style={styles.progressSection}>
           <View style={styles.progressBarTrack}>
-            <View style={[styles.progressBarFill, { width: '82%' }]} />
+            <View style={[styles.progressBarFill, { width: `${percentDisplay}%` }]} />
           </View>
           <View style={styles.progressLabels}>
             <Text style={styles.progressLabelText}>
@@ -180,7 +226,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             </Text>
             <Text style={styles.progressLabelText}>
               Remaining:{' '}
-              <Text style={styles.progressLabelGreen}>1h 21m (est. 5:53 PM)</Text>
+              <Text style={styles.progressLabelGreen}>
+                {dashboardData?.remainingMinutes != null
+                  ? `${Math.floor(dashboardData.remainingMinutes / 60)}h ${dashboardData.remainingMinutes % 60}m`
+                  : '1h 21m'}{' '}
+                (est. {dashboardData?.suggestedCompletionTime || '5:53 PM'})
+              </Text>
             </Text>
           </View>
         </View>
@@ -259,13 +310,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
         <View style={styles.balanceStatRow}>
           <View>
-            <Text style={styles.balanceStatValue}>+39 min</Text>
+            <Text style={styles.balanceStatValue}>{balanceSign} min</Text>
             <Text style={styles.balanceStatDesc}>
               Extra time banked across rolling cycle
             </Text>
           </View>
           <View style={styles.balanceProjectedCol}>
-            <Text style={styles.balanceProjectedValue}>+14 min</Text>
+            <Text style={styles.balanceProjectedValue}>
+              {dashboardData?.dailyBalanceMinutes != null
+                ? `${dashboardData.dailyBalanceMinutes >= 0 ? '+' : ''}${dashboardData.dailyBalanceMinutes} min`
+                : '+14 min'}
+            </Text>
             <Text style={styles.balanceProjectedLabel}>Projected today</Text>
           </View>
         </View>
@@ -280,7 +335,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           <View style={styles.breakdownItem}>
             <MaterialIcons name="schedule" size={16} color={theme.colors.primary} />
             <Text style={styles.breakdownText}>
-              Est. EOD: <Text style={styles.breakdownBoldGreen}>+39m net</Text>
+              Est. EOD: <Text style={styles.breakdownBoldGreen}>{balanceSign}m net</Text>
             </Text>
           </View>
         </View>
@@ -290,19 +345,25 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       <View style={styles.ledgerCard}>
         <View style={styles.ledgerHeader}>
           <Text style={styles.ledgerTitle}>Today's Ledger</Text>
-          <Text style={styles.ledgerSubtitle}>Oct 3, 2026</Text>
+          <Text style={styles.ledgerSubtitle}>
+            {dashboardData?.date ? dashboardData.date : 'Oct 3, 2026'}
+          </Text>
         </View>
 
         <View style={styles.ledgerGrid}>
           <View style={styles.ledgerBox}>
             <Text style={styles.ledgerBoxLabel}>Actual Clock In</Text>
-            <Text style={styles.ledgerBoxValue}>10:08 AM</Text>
-            <Text style={styles.ledgerBoxAlert}>8 min late vs 10:00</Text>
+            <Text style={styles.ledgerBoxValue}>{dashboardData?.clockIn || '10:08 AM'}</Text>
+            <Text style={styles.ledgerBoxAlert}>
+              {dashboardData?.lateMinutes ? `${dashboardData.lateMinutes} min late vs 10:00` : '8 min late vs 10:00'}
+            </Text>
           </View>
 
           <View style={styles.ledgerBox}>
             <Text style={styles.ledgerBoxLabel}>Target Clock Out</Text>
-            <Text style={styles.ledgerBoxValue}>5:53 PM</Text>
+            <Text style={styles.ledgerBoxValue}>
+              {dashboardData?.suggestedCompletionTime || '5:53 PM'}
+            </Text>
             <Text style={styles.ledgerBoxGreen}>Standard window 7:00</Text>
           </View>
 
@@ -360,7 +421,28 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         </View>
 
         <View style={styles.recentList}>
-          {INITIAL_RECORDS.slice(0, 5).map((rec) => {
+          {((dashboardData?.recentRecords && dashboardData.recentRecords.length > 0)
+            ? dashboardData.recentRecords.map((r: any) => {
+                const isTodayRec = r.date === dashboardData?.date;
+                const inTimeFormatted = r.clockIn ? (r.clockIn.length > 10 ? new Date(r.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockIn) : '10:00 AM';
+                const outTimeFormatted = r.clockOut ? (r.clockOut.length > 10 ? new Date(r.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockOut) : (r.status === 'WORKING' ? 'In Progress' : 'Unrecorded');
+                const productiveFormatted = `${Math.floor((r.productiveMinutes || 0) / 60)}h ${Math.abs((r.productiveMinutes || 0) % 60).toString().padStart(2, '0')}m`;
+                const deltaFormatted = r.dailyBalanceMinutes > 0 ? `+${r.dailyBalanceMinutes}m Extra` : r.dailyBalanceMinutes < 0 ? `${r.dailyBalanceMinutes}m Adjust` : 'Balanced (0m)';
+                const recStatus = r.status === 'WORKING' ? 'active' : (r.dailyBalanceMinutes > 0 ? 'extra' : (r.dailyBalanceMinutes < 0 ? 'deficit' : 'balanced'));
+
+                return {
+                  id: r.id || r.date,
+                  dayLabel: isTodayRec ? `Today (${r.date.slice(5)})` : r.date,
+                  isToday: isTodayRec,
+                  inTime: inTimeFormatted,
+                  outTime: outTimeFormatted,
+                  productiveDuration: productiveFormatted,
+                  status: recStatus,
+                  deltaStr: deltaFormatted,
+                };
+              })
+            : INITIAL_RECORDS.slice(0, 5)
+          ).map((rec: any) => {
             return (
               <View key={rec.id} style={styles.recentItem}>
                 <View style={styles.recentItemLeft}>

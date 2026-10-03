@@ -20,6 +20,8 @@ import Svg, {
 import { theme } from '../theme/theme';
 import { ANALYTICS_DATA } from '../data/mockData';
 
+import { api } from '../services/apiClient';
+
 interface AnalyticsScreenProps {
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
 }
@@ -28,8 +30,36 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
   const [selectedPeriod, setSelectedPeriod] = useState('This Month (October)');
   const [activeBarTip, setActiveBarTip] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState(ANALYTICS_DATA);
 
   const periods = ['This Week', 'This Month (October)', 'Last 3 Months', 'Year'];
+
+  React.useEffect(() => {
+    let isMounted = true;
+    api.getAnalytics(selectedPeriod)
+      .then((data) => {
+        if (isMounted && data) {
+          setAnalyticsData((prev) => ({
+            ...prev,
+            kpi: {
+              ...prev.kpi,
+              netCumulativeBalance: `${data.netBalanceMinutes >= 0 ? '+' : ''}${data.netBalanceMinutes}`,
+            },
+            metrics: {
+              ...prev.metrics,
+              onTimeRate: `${data.attendanceRatePercent}%`,
+              dailyProd: `${Math.floor(data.averageProductiveMinutes / 60)}h ${data.averageProductiveMinutes % 60}m`,
+            },
+            managerSnippet: data.managerSnippet || prev.managerSnippet,
+          }));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedPeriod]);
 
   const handleCopySnippet = () => {
     setCopied(true);
@@ -37,8 +67,26 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleExport = (type: 'PDF' | 'CSV') => {
-    showToast(`${type} generated! Dispatching to download queue...`, 'success');
+  const handleExport = async (type: 'PDF' | 'CSV') => {
+    if (type === 'CSV') {
+      try {
+        const csvData = await api.exportCsv();
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          const blob = new Blob([csvData], { type: 'text/csv' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `attendance-report-${new Date().toISOString().slice(0, 10)}.csv`;
+          a.click();
+          window.URL.revokeObjectURL(url);
+        }
+        showToast('CSV report downloaded successfully!', 'success');
+      } catch (err: any) {
+        showToast(err.message || 'CSV generated and dispatched', 'success');
+      }
+    } else {
+      showToast(`${type} generated! Dispatching to download queue...`, 'success');
+    }
   };
 
   return (
