@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "app",
-    "slug": "app",
+    "name": "Attendance & Time Balance Tracker",
+    "slug": "attendance-and-time-balance-tracker",
+    "description": "Attendance & Time Balance Tracker by sujay kumar kotal",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
