@@ -18,40 +18,56 @@ import Svg, {
   Line,
 } from 'react-native-svg';
 import { theme } from '../theme/theme';
-import { ANALYTICS_DATA } from '../data/mockData';
-
 import { api } from '../services/apiClient';
+import { AnalyticsSummary } from '../services/types';
 
 interface AnalyticsScreenProps {
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
+const INITIAL_ANALYTICS_STATE: AnalyticsSummary = {
+  totalWorkingDays: 0,
+  totalProductiveMinutes: 0,
+  totalRequiredMinutes: 0,
+  totalExtraMinutes: 0,
+  totalDeficitMinutes: 0,
+  netBalanceMinutes: 0,
+  averageProductiveMinutes: 0,
+  onTimeDays: 0,
+  earlyDays: 0,
+  lateDays: 0,
+  missingClockOuts: 0,
+  attendanceRatePercent: 0,
+  weeklyBars: [
+    { day: 'Mon', date: '', hours: '0h 0m', minutes: 0, delta: '0m', deltaMinutes: 0, heightPercent: 0, status: 'BALANCED' },
+    { day: 'Tue', date: '', hours: '0h 0m', minutes: 0, delta: '0m', deltaMinutes: 0, heightPercent: 0, status: 'BALANCED' },
+    { day: 'Wed', date: '', hours: '0h 0m', minutes: 0, delta: '0m', deltaMinutes: 0, heightPercent: 0, status: 'BALANCED' },
+    { day: 'Thu', date: '', hours: '0h 0m', minutes: 0, delta: '0m', deltaMinutes: 0, heightPercent: 0, status: 'BALANCED' },
+    { day: 'Fri', date: '', hours: '0h 0m', minutes: 0, delta: '0m', deltaMinutes: 0, heightPercent: 0, status: 'BALANCED' },
+  ],
+  trendPoints: [],
+  cadence: {
+    earlyOnTime: { days: 0, percent: 0 },
+    lateRecovered: { days: 0, percent: 0 },
+    pendingAdjustment: { days: 0, percent: 0 },
+  },
+  managerSnippet: 'Time Tracking Active: No shifts completed yet. Ready to log punches in device internal memory.',
+};
+
 export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) => {
-  const [selectedPeriod, setSelectedPeriod] = useState('This Month (October)');
+  const [selectedPeriod, setSelectedPeriod] = useState('This Month');
   const [activeBarTip, setActiveBarTip] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [analyticsData, setAnalyticsData] = useState(ANALYTICS_DATA);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsSummary>(INITIAL_ANALYTICS_STATE);
 
-  const periods = ['This Week', 'This Month (October)', 'Last 3 Months', 'Year'];
+  const periods = ['This Week', 'This Month', 'All Time'];
 
   React.useEffect(() => {
     let isMounted = true;
     api.getAnalytics(selectedPeriod)
       .then((data) => {
         if (isMounted && data) {
-          setAnalyticsData((prev) => ({
-            ...prev,
-            kpi: {
-              ...prev.kpi,
-              netCumulativeBalance: `${data.netBalanceMinutes >= 0 ? '+' : ''}${data.netBalanceMinutes}`,
-            },
-            metrics: {
-              ...prev.metrics,
-              onTimeRate: `${data.attendanceRatePercent}%`,
-              dailyProd: `${Math.floor(data.averageProductiveMinutes / 60)}h ${data.averageProductiveMinutes % 60}m`,
-            },
-            managerSnippet: data.managerSnippet || prev.managerSnippet,
-          }));
+          setAnalyticsData(data);
         }
       })
       .catch(() => {});
@@ -88,6 +104,12 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
       showToast(`${type} generated! Dispatching to download queue...`, 'success');
     }
   };
+
+  const prodHours = Math.floor(analyticsData.totalProductiveMinutes / 60);
+  const prodMins = analyticsData.totalProductiveMinutes % 60;
+  const avgHours = Math.floor(analyticsData.averageProductiveMinutes / 60);
+  const avgMins = analyticsData.averageProductiveMinutes % 60;
+  const netBalSign = analyticsData.netBalanceMinutes >= 0 ? '+' : '';
 
   return (
     <ScrollView
@@ -153,9 +175,19 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
         <View style={styles.kpiHeader}>
           <View style={styles.kpiBadge}>
             <View style={styles.kpiPulseDot} />
-            <Text style={styles.kpiBadgeText}>{ANALYTICS_DATA.kpi.statusBadge}</Text>
+            <Text style={styles.kpiBadgeText}>
+              {analyticsData.netBalanceMinutes > 0
+                ? 'Time Surplus Active'
+                : analyticsData.netBalanceMinutes < 0
+                ? 'Time Deficit Active'
+                : 'Balanced State'}
+            </Text>
           </View>
-          <Text style={styles.kpiCutoff}>{ANALYTICS_DATA.kpi.cutoff}</Text>
+          <Text style={styles.kpiCutoff}>
+            {analyticsData.totalWorkingDays > 0
+              ? `${analyticsData.totalWorkingDays} shifts logged`
+              : 'Device Internal Ledger'}
+          </Text>
         </View>
 
         <View style={styles.kpiStatRow}>
@@ -163,9 +195,9 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
             <Text style={styles.kpiCaption}>NET CUMULATIVE BALANCE</Text>
             <View style={styles.kpiNumberRow}>
               <Text style={styles.kpiHeroNumber}>
-                {ANALYTICS_DATA.kpi.netCumulativeBalance}
+                {netBalSign}{analyticsData.netBalanceMinutes}
               </Text>
-              <Text style={styles.kpiHeroUnit}>{ANALYTICS_DATA.kpi.unit}</Text>
+              <Text style={styles.kpiHeroUnit}>min</Text>
             </View>
           </View>
 
@@ -177,9 +209,15 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
         <View style={styles.kpiFooter}>
           <View style={styles.kpiFooterLeft}>
             <MaterialIcons name="verified" size={15} color={theme.colors.secondaryFixed} />
-            <Text style={styles.kpiFooterText}>{ANALYTICS_DATA.kpi.desc}</Text>
+            <Text style={styles.kpiFooterText}>
+              {analyticsData.totalWorkingDays > 0
+                ? 'Banked safely to compensatory ledger'
+                : 'Punches stored in phone internal storage'}
+            </Text>
           </View>
-          <Text style={styles.kpiComparison}>{ANALYTICS_DATA.kpi.comparison}</Text>
+          <Text style={styles.kpiComparison}>
+            {analyticsData.totalWorkingDays > 0 ? `${prodHours}h ${prodMins}m total` : '0m baseline'}
+          </Text>
         </View>
       </LinearGradient>
 
@@ -194,11 +232,11 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
           <View>
             <Text style={styles.secondaryCaption}>TOTAL HOURS</Text>
             <Text style={styles.secondaryVal}>
-              171<Text style={styles.secondaryUnit}>h</Text> 20
+              {prodHours}<Text style={styles.secondaryUnit}>h</Text> {prodMins}
               <Text style={styles.secondaryUnit}>m</Text>
             </Text>
             <Text style={styles.secondaryGreenSub}>
-              {ANALYTICS_DATA.metrics.totalHoursDelta}
+              {analyticsData.totalWorkingDays} logged shifts
             </Text>
           </View>
         </View>
@@ -214,12 +252,10 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
           <View>
             <Text style={styles.secondaryCaption}>DAILY PROD.</Text>
             <Text style={styles.secondaryVal}>
-              7<Text style={styles.secondaryUnit}>h</Text> 47
+              {avgHours}<Text style={styles.secondaryUnit}>h</Text> {avgMins}
               <Text style={styles.secondaryUnit}>m</Text>
             </Text>
-            <Text style={styles.secondaryMutedSub}>
-              {ANALYTICS_DATA.metrics.dailyTarget}
-            </Text>
+            <Text style={styles.secondaryMutedSub}>Target: 7h 45m</Text>
           </View>
         </View>
 
@@ -232,10 +268,10 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
           <View>
             <Text style={styles.secondaryCaption}>ON-TIME</Text>
             <Text style={styles.secondaryVal}>
-              91<Text style={styles.secondaryUnit}>%</Text>
+              {analyticsData.attendanceRatePercent}<Text style={styles.secondaryUnit}>%</Text>
             </Text>
             <Text style={styles.secondaryGreenSub}>
-              {ANALYTICS_DATA.metrics.onTimeBadge}
+              {analyticsData.onTimeDays}/{analyticsData.totalWorkingDays || 0} on time
             </Text>
           </View>
         </View>
@@ -246,7 +282,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
         <View style={styles.chartHeader}>
           <View>
             <Text style={styles.chartTitle}>Daily Hours vs Goal</Text>
-            <Text style={styles.chartSubtitle}>Week 43 Daily Productivity</Text>
+            <Text style={styles.chartSubtitle}>Current Week Productivity</Text>
           </View>
           <View style={styles.targetLegendPill}>
             <View style={styles.targetLegendDot} />
@@ -264,16 +300,28 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
 
           {/* 5-day Bars Grid */}
           <View style={styles.barsRow}>
-            {ANALYTICS_DATA.weeklyBars.map((bar) => {
+            {analyticsData.weeklyBars.map((bar) => {
               const isSelected = activeBarTip === bar.day;
+              const barColor =
+                bar.status === 'EXTRA'
+                  ? theme.colors.secondaryBright
+                  : bar.status === 'DEFICIT'
+                  ? theme.colors.tertiaryBright
+                  : theme.colors.primaryContainer;
+              const deltaColor =
+                bar.status === 'EXTRA'
+                  ? theme.colors.secondaryBright
+                  : bar.status === 'DEFICIT'
+                  ? theme.colors.tertiaryBright
+                  : theme.colors.onSurfaceVariant;
+              const barHeight = bar.heightPercent > 0 ? (bar.heightPercent / 100) * 110 : 4;
+
               return (
                 <TouchableOpacity
                   key={bar.day}
                   style={styles.barCol}
                   onPress={() => {
-                    const tipText = `${bar.day}: ${bar.hours} (${bar.delta} ${
-                      bar.isSurplus ? 'surplus' : bar.isDeficit ? 'deficit' : 'exact'
-                    })`;
+                    const tipText = `${bar.day}: ${bar.hours} (${bar.delta})`;
                     setActiveBarTip(tipText);
                     showToast(tipText);
                   }}
@@ -282,7 +330,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
                   <Text
                     style={[
                       styles.barDeltaText,
-                      { color: bar.deltaColor },
+                      { color: deltaColor },
                     ]}
                   >
                     {bar.delta}
@@ -291,9 +339,9 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
                     style={[
                       styles.barFill,
                       {
-                        height: (bar.heightPercent / 100) * 110,
-                        backgroundColor: bar.color,
-                        opacity: isSelected ? 1 : 0.9,
+                        height: barHeight,
+                        backgroundColor: barColor,
+                        opacity: isSelected ? 1 : 0.85,
                       },
                     ]}
                   />
@@ -307,13 +355,13 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
           {/* Interactive Tooltip bar */}
           <View style={styles.barTooltipBox}>
             <Text style={styles.barTooltipText}>
-              {activeBarTip || 'Tap any day bar to view granular punch breakdown'}
+              {activeBarTip || 'Tap any day bar to view granular shift detail'}
             </Text>
           </View>
         </View>
       </View>
 
-      {/* 5. Chart 2: Cumulative Balance Trend (SVG Area Chart) */}
+      {/* 5. Chart 2: Cumulative Balance Trend */}
       <View style={styles.chartCard}>
         <View style={styles.chartHeader}>
           <View>
@@ -322,78 +370,79 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
           </View>
           <View style={styles.growthBadge}>
             <MaterialIcons name="trending-up" size={14} color={theme.colors.secondaryBright} />
-            <Text style={styles.growthBadgeText}>+35m Growth</Text>
-          </View>
-        </View>
-
-        {/* SVG Curve */}
-        <View style={styles.svgAreaWrapper}>
-          <View style={styles.svgYAxisLabels}>
-            <Text style={styles.svgYLabel}>+60m</Text>
-            <Text style={styles.svgYLabel}>+30m</Text>
-            <Text style={[styles.svgYLabel, { color: theme.colors.outline }]}>0m (Base)</Text>
-            <Text style={styles.svgYLabel}>−30m</Text>
-          </View>
-
-          <View style={styles.svgBox}>
-            <Svg width="100%" height={120} viewBox="0 0 320 120">
-              <Defs>
-                <SvgLinearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0%" stopColor="#006C4A" stopOpacity="0.35" />
-                  <Stop offset="65%" stopColor="#82F5C1" stopOpacity="0.10" />
-                  <Stop offset="100%" stopColor="#FAF8FF" stopOpacity="0.0" />
-                </SvgLinearGradient>
-              </Defs>
-
-              {/* Zero baseline */}
-              <Line
-                x1="0"
-                y1="85"
-                x2="320"
-                y2="85"
-                stroke="#DAE2FD"
-                strokeWidth="1.5"
-                strokeDasharray="4 4"
-              />
-
-              {/* Area fill */}
-              <Path
-                d="M 0 70 C 40 68, 65 75, 100 58 C 150 45, 195 50, 240 30 C 275 18, 300 15, 320 12 L 320 120 L 0 120 Z"
-                fill="url(#areaGradient)"
-              />
-
-              {/* Stroke line */}
-              <Path
-                d="M 0 70 C 40 68, 65 75, 100 58 C 150 45, 195 50, 240 30 C 275 18, 300 15, 320 12"
-                stroke="#006C4A"
-                strokeWidth="3"
-                fill="none"
-                strokeLinecap="round"
-              />
-
-              {/* Highlight anchor points */}
-              <Circle cx="0" cy="70" r="4" fill="#006C4A" stroke="#FFFFFF" strokeWidth="2" />
-              <Circle cx="100" cy="58" r="4" fill="#006C4A" stroke="#FFFFFF" strokeWidth="2" />
-              <Circle cx="240" cy="30" r="4" fill="#006C4A" stroke="#FFFFFF" strokeWidth="2" />
-              <Circle cx="320" cy="12" r="5" fill="#006C4A" stroke="#82F5C1" strokeWidth="2.5" />
-            </Svg>
-
-            {/* Dynamic Milestone pill */}
-            <View style={styles.milestonePill}>
-              <View style={styles.milestoneDot} />
-              <Text style={styles.milestoneText}>Oct 31: +50m</Text>
-            </View>
-          </View>
-
-          <View style={styles.svgXAxisLabels}>
-            <Text style={styles.svgXLabel}>Oct 1 (+15m)</Text>
-            <Text style={styles.svgXLabel}>Oct 10</Text>
-            <Text style={styles.svgXLabel}>Oct 20</Text>
-            <Text style={[styles.svgXLabel, { color: theme.colors.secondaryBright, fontWeight: '700' }]}>
-              Oct 31 (+50m)
+            <Text style={styles.growthBadgeText}>
+              {netBalSign}{analyticsData.netBalanceMinutes}m Ledger
             </Text>
           </View>
         </View>
+
+        {analyticsData.trendPoints.length === 0 ? (
+          <View style={{ paddingVertical: 28, alignItems: 'center', justifyContent: 'center' }}>
+            <MaterialIcons name="show-chart" size={32} color={theme.colors.outline} />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: theme.colors.onSurface, marginTop: 8 }}>
+              No Balance Trend Points Yet
+            </Text>
+            <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 4, paddingHorizontal: 16 }}>
+              Complete your daily work shifts to track cumulative overtime surplus on this chart.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.svgAreaWrapper}>
+            <View style={styles.svgYAxisLabels}>
+              <Text style={styles.svgYLabel}>+60m</Text>
+              <Text style={styles.svgYLabel}>+30m</Text>
+              <Text style={[styles.svgYLabel, { color: theme.colors.outline }]}>0m (Base)</Text>
+              <Text style={styles.svgYLabel}>−30m</Text>
+            </View>
+
+            <View style={styles.svgBox}>
+              <Svg width="100%" height={120} viewBox="0 0 320 120">
+                <Defs>
+                  <SvgLinearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0%" stopColor="#006C4A" stopOpacity="0.35" />
+                    <Stop offset="65%" stopColor="#82F5C1" stopOpacity="0.10" />
+                    <Stop offset="100%" stopColor="#FAF8FF" stopOpacity="0.0" />
+                  </SvgLinearGradient>
+                </Defs>
+
+                {/* Zero baseline */}
+                <Line
+                  x1="0"
+                  y1="85"
+                  x2="320"
+                  y2="85"
+                  stroke="#DAE2FD"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 4"
+                />
+
+                {/* Area fill */}
+                <Path
+                  d="M 0 85 L 0 70 C 80 65, 160 50, 320 30 L 320 120 L 0 120 Z"
+                  fill="url(#areaGradient)"
+                />
+
+                {/* Stroke line */}
+                <Path
+                  d="M 0 70 C 80 65, 160 50, 320 30"
+                  stroke="#006C4A"
+                  strokeWidth="3"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+
+                <Circle cx="320" cy="30" r="5" fill="#006C4A" stroke="#82F5C1" strokeWidth="2.5" />
+              </Svg>
+
+              <View style={styles.milestonePill}>
+                <View style={styles.milestoneDot} />
+                <Text style={styles.milestoneText}>
+                  Current: {netBalSign}{analyticsData.netBalanceMinutes}m
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* 6. Attendance Breakdown & Reliability Ratio */}
@@ -401,16 +450,44 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
         <View style={styles.breakdownHeader}>
           <View>
             <Text style={styles.breakdownTitle}>Punctuality & Cadence</Text>
-            <Text style={styles.breakdownSubtitle}>22 Working Days Tracked</Text>
+            <Text style={styles.breakdownSubtitle}>
+              {analyticsData.totalWorkingDays} Working Days Tracked
+            </Text>
           </View>
-          <Text style={styles.breakdownAccountedText}>100% Accounted</Text>
+          <Text style={styles.breakdownAccountedText}>
+            {analyticsData.totalWorkingDays > 0 ? '100% Accounted' : 'Fresh Start'}
+          </Text>
         </View>
 
         {/* Segmented Visual Gauge */}
         <View style={styles.segmentedGaugeTrack}>
-          <View style={[styles.segmentedGaugeFill, { width: '73%', backgroundColor: theme.colors.secondaryBright }]} />
-          <View style={[styles.segmentedGaugeFill, { width: '23%', backgroundColor: theme.colors.primaryContainer }]} />
-          <View style={[styles.segmentedGaugeFill, { width: '4%', backgroundColor: theme.colors.tertiaryContainer }]} />
+          <View
+            style={[
+              styles.segmentedGaugeFill,
+              {
+                width: `${analyticsData.cadence.earlyOnTime.percent}%`,
+                backgroundColor: theme.colors.secondaryBright,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.segmentedGaugeFill,
+              {
+                width: `${analyticsData.cadence.lateRecovered.percent}%`,
+                backgroundColor: theme.colors.primaryContainer,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.segmentedGaugeFill,
+              {
+                width: `${analyticsData.cadence.pendingAdjustment.percent}%`,
+                backgroundColor: theme.colors.tertiaryContainer,
+              },
+            ]}
+          />
         </View>
 
         {/* Legend rows */}
@@ -421,9 +498,11 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
               <Text style={styles.cadenceLabel}>Early / On-Time Shifts</Text>
             </View>
             <View style={styles.cadenceRight}>
-              <Text style={styles.cadenceDays}>16 Days</Text>
+              <Text style={styles.cadenceDays}>{analyticsData.cadence.earlyOnTime.days} Days</Text>
               <View style={styles.cadenceBadge}>
-                <Text style={styles.cadenceBadgeTextGreen}>73%</Text>
+                <Text style={styles.cadenceBadgeTextGreen}>
+                  {analyticsData.cadence.earlyOnTime.percent}%
+                </Text>
               </View>
             </View>
           </View>
@@ -437,9 +516,11 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
               </View>
             </View>
             <View style={styles.cadenceRight}>
-              <Text style={styles.cadenceDays}>5 Days</Text>
+              <Text style={styles.cadenceDays}>{analyticsData.cadence.lateRecovered.days} Days</Text>
               <View style={styles.cadenceBadge}>
-                <Text style={styles.cadenceBadgeTextBlue}>23%</Text>
+                <Text style={styles.cadenceBadgeTextBlue}>
+                  {analyticsData.cadence.lateRecovered.percent}%
+                </Text>
               </View>
             </View>
           </View>
@@ -447,12 +528,14 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
           <View style={styles.cadenceRow}>
             <View style={styles.cadenceLeft}>
               <View style={[styles.cadenceDot, { backgroundColor: theme.colors.tertiaryContainer }]} />
-              <Text style={styles.cadenceLabel}>Pending HR Adjustment</Text>
+              <Text style={styles.cadenceLabel}>Pending Punch Adjustments</Text>
             </View>
             <View style={styles.cadenceRight}>
-              <Text style={styles.cadenceDays}>1 Day</Text>
+              <Text style={styles.cadenceDays}>{analyticsData.cadence.pendingAdjustment.days} Days</Text>
               <View style={styles.cadenceBadge}>
-                <Text style={styles.cadenceBadgeTextRed}>4%</Text>
+                <Text style={styles.cadenceBadgeTextRed}>
+                  {analyticsData.cadence.pendingAdjustment.percent}%
+                </Text>
               </View>
             </View>
           </View>
@@ -464,7 +547,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
         <View style={styles.dispatchHeader}>
           <Text style={styles.dispatchTitle}>Audit & Compliance Dispatch</Text>
           <Text style={styles.dispatchSubtitle}>
-            Verified by TimeTrack cryptographic geofence engine
+            Verified by TimeTrack local offline ledger
           </Text>
         </View>
 
@@ -484,7 +567,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({ showToast }) =
             </TouchableOpacity>
           </View>
           <Text style={styles.snippetContentText}>
-            "{ANALYTICS_DATA.managerSnippet}"
+            "{analyticsData.managerSnippet}"
           </Text>
         </View>
 

@@ -9,9 +9,19 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
-import { CalendarDay, INITIAL_CALENDAR_DAYS } from '../data/mockData';
-
 import { api } from '../services/apiClient';
+
+export interface CalendarDay {
+  day: number;
+  weekday: string;
+  dateStr: string;
+  status: 'extra' | 'deficit' | 'balanced' | 'active' | 'warning' | 'weekend' | 'future' | 'offset';
+  delta?: string;
+  inTime?: string;
+  outTime?: string;
+  worked?: string;
+  progressPercent?: number;
+}
 
 interface CalendarScreenProps {
   onOpenAdjustment: (date: string) => void;
@@ -22,65 +32,118 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
   onOpenAdjustment,
   showToast,
 }) => {
-  const [currentMonth, setCurrentMonth] = useState('October 2026');
-  const [monthKey, setMonthKey] = useState('2026-10');
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
-  const [calendarDays, setCalendarDays] = useState<CalendarDay[]>(INITIAL_CALENDAR_DAYS);
+  const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
+  const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
 
-  // Selected Day state (defaults to Oct 23 / Today)
-  const [selectedDay, setSelectedDay] = useState<CalendarDay>(
-    calendarDays.find((d) => d.day === 23 && d.status === 'active') || calendarDays[25]
-  );
+  const yearNum = currentDate.getFullYear();
+  const monthNum = currentDate.getMonth() + 1;
+  const monthKey = `${yearNum}-${monthNum.toString().padStart(2, '0')}`;
+  const monthName = currentDate.toLocaleString('en-US', { month: 'long' });
+  const currentMonthLabel = `${monthName} ${yearNum}`;
 
   React.useEffect(() => {
     let isMounted = true;
     api.getCalendar(monthKey)
       .then((data) => {
-        if (isMounted && data && Array.isArray(data) && data.length > 0) {
-          // Map to CalendarDay
-          const mapped: CalendarDay[] = data.map((d: any) => ({
-            day: d.day,
-            weekday: d.weekday,
-            dateStr: d.date,
-            status: d.status.toLowerCase() as any,
-            delta: d.deltaStr,
-            inTime: d.inTime || undefined,
-            outTime: d.outTime || undefined,
-            worked: d.productiveTime || undefined,
-            progressPercent: d.progressPercent,
-          }));
+        if (!isMounted) return;
 
-          // prepend Sept offset days for Oct 2026 alignment (28, 29, 30)
-          if (monthKey === '2026-10') {
-            const offsets: CalendarDay[] = [
-              { day: 28, weekday: 'Mon', dateStr: 'Sep 28', status: 'offset' },
-              { day: 29, weekday: 'Tue', dateStr: 'Sep 29', status: 'offset' },
-              { day: 30, weekday: 'Wed', dateStr: 'Sep 30', status: 'offset' },
-            ];
-            setCalendarDays([...offsets, ...mapped]);
-          } else {
-            setCalendarDays(mapped);
-          }
+        // Generate Monday-first offset days
+        const firstDay = new Date(yearNum, currentDate.getMonth(), 1);
+        const startDayOfWeek = (firstDay.getDay() + 6) % 7; // 0 for Mon, 6 for Sun
+        const prevMonthLastDate = new Date(yearNum, currentDate.getMonth(), 0).getDate();
+        const offsets: CalendarDay[] = [];
+        for (let i = startDayOfWeek - 1; i >= 0; i--) {
+          offsets.push({
+            day: prevMonthLastDate - i,
+            weekday: '',
+            dateStr: '',
+            status: 'offset',
+          });
         }
+
+        const mapped: CalendarDay[] = (data || []).map((d: any) => ({
+          day: d.day,
+          weekday: d.weekday,
+          dateStr: d.date,
+          status: d.status.toLowerCase() as any,
+          delta: d.deltaStr,
+          inTime: d.inTime || undefined,
+          outTime: d.outTime || undefined,
+          worked: d.productiveTime || undefined,
+          progressPercent: d.progressPercent,
+        }));
+
+        const fullDays = [...offsets, ...mapped];
+        setCalendarDays(fullDays);
+
+        // Find today if in this month, or first real day
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayMatch = fullDays.find((d) => d.dateStr === todayStr);
+        const firstRealDay = fullDays.find((d) => d.status !== 'offset');
+        setSelectedDay((prev) => {
+          if (prev && fullDays.some((d) => d.dateStr === prev.dateStr)) {
+            return fullDays.find((d) => d.dateStr === prev.dateStr) || prev;
+          }
+          return todayMatch || firstRealDay || null;
+        });
       })
-      .catch(() => {
-        // Fallback silently to initial
-      });
+      .catch(() => {});
 
     return () => {
       isMounted = false;
     };
-  }, [monthKey]);
+  }, [monthKey, yearNum, currentDate]);
+
+  const handlePrevMonth = () => {
+    const prev = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+    setCurrentDate(prev);
+    showToast(`Navigated to ${prev.toLocaleString('en-US', { month: 'long', year: 'numeric' })}`);
+  };
+
+  const handleNextMonth = () => {
+    const next = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+    setCurrentDate(next);
+    showToast(`Navigated to ${next.toLocaleString('en-US', { month: 'long', year: 'numeric' })}`);
+  };
 
   const handleDaySelect = (day: CalendarDay) => {
     if (day.status === 'offset') return;
     setSelectedDay(day);
   };
 
-  const getDayName = (dayNumber: number) => {
-    const dayNames = ['Thursday', 'Friday', 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday'];
-    return dayNames[(dayNumber - 1) % 7] || 'Workday';
+  // Dynamic Bento Grid Metrics from loaded calendar days
+  const realDays = calendarDays.filter((d) => d.status !== 'offset' && d.status !== 'weekend');
+  const loggedDays = calendarDays.filter(
+    (d) => d.status === 'extra' || d.status === 'deficit' || d.status === 'active' || (d.status === 'balanced' && d.inTime)
+  );
+  const totalWorkdays = realDays.length || 22;
+  const loggedCount = loggedDays.length;
+  const progressPercentVal = Math.min(100, Math.round((loggedCount / totalWorkdays) * 100));
+
+  let netBalanceMins = 0;
+  let onTimePunches = 0;
+  for (const ld of loggedDays) {
+    if (ld.delta) {
+      const match = ld.delta.match(/([+−-]?\d+)m/);
+      if (match) {
+        const val = parseInt(match[1].replace('−', '-'), 10);
+        if (!isNaN(val)) netBalanceMins += val;
+      }
+    }
+    if (ld.status !== 'deficit') onTimePunches++;
+  }
+
+  const activeSelected = selectedDay || {
+    day: 1,
+    weekday: 'Workday',
+    dateStr: `${yearNum}-${monthNum.toString().padStart(2, '0')}-01`,
+    status: 'balanced' as const,
+    delta: '0m',
   };
+
+  const isTodaySelected = activeSelected.dateStr === new Date().toISOString().slice(0, 10);
 
   return (
     <ScrollView
@@ -93,28 +156,20 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
         <View style={styles.monthSelector}>
           <TouchableOpacity
             style={styles.navChevronBtn}
-            onPress={() => {
-              setCurrentMonth('September 2026');
-              setMonthKey('2026-09');
-              showToast('Switched to September 2026 records');
-            }}
+            onPress={handlePrevMonth}
             activeOpacity={0.7}
           >
             <MaterialIcons name="chevron-left" size={22} color={theme.colors.onSurface} />
           </TouchableOpacity>
 
           <View style={styles.monthLabelRow}>
-            <Text style={styles.monthLabelText}>{currentMonth}</Text>
+            <Text style={styles.monthLabelText}>{currentMonthLabel}</Text>
             <View style={styles.monthDot} />
           </View>
 
           <TouchableOpacity
             style={styles.navChevronBtn}
-            onPress={() => {
-              setCurrentMonth('November 2026');
-              setMonthKey('2026-11');
-              showToast('November schedule loaded');
-            }}
+            onPress={handleNextMonth}
             activeOpacity={0.7}
           >
             <MaterialIcons name="chevron-right" size={22} color={theme.colors.onSurface} />
@@ -170,11 +225,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             <MaterialIcons name="event-available" size={16} color={theme.colors.primary} />
           </View>
           <View style={styles.bentoStatRow}>
-            <Text style={styles.bentoStatMain}>22</Text>
-            <Text style={styles.bentoStatSub}>/ 23 days</Text>
+            <Text style={styles.bentoStatMain}>{loggedCount}</Text>
+            <Text style={styles.bentoStatSub}>/ {totalWorkdays} days</Text>
           </View>
           <View style={styles.bentoProgressTrack}>
-            <View style={[styles.bentoProgressFill, { width: '95.6%' }]} />
+            <View style={[styles.bentoProgressFill, { width: `${progressPercentVal}%` }]} />
           </View>
         </View>
 
@@ -185,8 +240,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             <MaterialIcons name="timelapse" size={16} color={theme.colors.secondaryBright} />
           </View>
           <View style={styles.bentoStatRow}>
-            <Text style={styles.bentoStatMain}>7h 48m</Text>
-            <Text style={styles.bentoStatPercentGreen}>98%</Text>
+            <Text style={styles.bentoStatMain}>
+              {loggedCount > 0 ? (loggedDays[0]?.worked || '7h 45m') : '0h 00m'}
+            </Text>
+            <Text style={styles.bentoStatPercentGreen}>
+              {loggedCount > 0 ? `${progressPercentVal}%` : '0%'}
+            </Text>
           </View>
           <Text style={styles.bentoTargetText}>Target: 7h 45m</Text>
         </View>
@@ -195,15 +254,42 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
         <View style={styles.bentoCard}>
           <View style={styles.bentoCardHeader}>
             <Text style={styles.bentoCardCaption}>NET BALANCE</Text>
-            <View style={styles.bentoGreenDot} />
+            <View
+              style={[
+                styles.bentoGreenDot,
+                netBalanceMins < 0 && { backgroundColor: theme.colors.tertiaryBright },
+              ]}
+            />
           </View>
           <View style={styles.bentoStatRow}>
-            <Text style={[styles.bentoStatMain, { color: theme.colors.secondaryBright }]}>
-              +50m
+            <Text
+              style={[
+                styles.bentoStatMain,
+                {
+                  color:
+                    netBalanceMins >= 0
+                      ? theme.colors.secondaryBright
+                      : theme.colors.tertiaryBright,
+                },
+              ]}
+            >
+              {netBalanceMins >= 0 ? `+${netBalanceMins}m` : `${netBalanceMins}m`}
             </Text>
           </View>
-          <View style={styles.bentoBadgeSurplus}>
-            <Text style={styles.bentoBadgeSurplusText}>Surplus Banked</Text>
+          <View
+            style={[
+              styles.bentoBadgeSurplus,
+              netBalanceMins < 0 && { backgroundColor: theme.colors.errorContainer },
+            ]}
+          >
+            <Text
+              style={[
+                styles.bentoBadgeSurplusText,
+                netBalanceMins < 0 && { color: theme.colors.tertiaryBright },
+              ]}
+            >
+              {netBalanceMins > 0 ? 'Surplus Banked' : netBalanceMins < 0 ? 'Deficit Time' : 'Balanced'}
+            </Text>
           </View>
         </View>
 
@@ -214,10 +300,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             <MaterialIcons name="verified" size={16} color={theme.colors.primary} />
           </View>
           <View style={styles.bentoStatRow}>
-            <Text style={styles.bentoStatMain}>91%</Text>
-            <Text style={styles.bentoStatSub}>(20/22)</Text>
+            <Text style={styles.bentoStatMain}>
+              {loggedCount > 0 ? `${Math.round((onTimePunches / loggedCount) * 100)}%` : '0%'}
+            </Text>
+            <Text style={styles.bentoStatSub}>
+              ({onTimePunches}/{loggedCount})
+            </Text>
           </View>
-          <Text style={styles.bentoTargetText}>2 delayed punches</Text>
+          <Text style={styles.bentoTargetText}>
+            {loggedCount - onTimePunches > 0
+              ? `${loggedCount - onTimePunches} delayed punches`
+              : 'Zero tardiness recorded'}
+          </Text>
         </View>
       </View>
 
@@ -241,7 +335,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
         {/* 7-Column Day Grid */}
         <View style={styles.calendarGrid}>
           {calendarDays.map((d, index) => {
-            const isSelected = selectedDay.day === d.day && selectedDay.status === d.status;
+            const isSelected = activeSelected.day === d.day && activeSelected.status === d.status;
 
             if (d.status === 'offset') {
               return (
@@ -311,7 +405,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
                   </View>
                 )}
 
-                {d.status === 'balanced' && <View style={styles.balancedDot} />}
+                {d.status === 'balanced' && d.inTime && <View style={styles.balancedDot} />}
 
                 {d.status === 'active' && (
                   <View style={styles.activeTagPill}>
@@ -334,12 +428,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
           <View>
             <View style={styles.detailTitleRow}>
               <Text style={styles.detailDateText}>
-                {getDayName(selectedDay.day)}, Oct {selectedDay.day}
+                {activeSelected.weekday || 'Day'}, {monthName} {activeSelected.day}
               </Text>
               <View
                 style={[
                   styles.detailDayTag,
-                  selectedDay.day === 23
+                  isTodaySelected
                     ? { backgroundColor: theme.colors.primaryFixed }
                     : { backgroundColor: theme.colors.surfaceContainerHigh },
                 ]}
@@ -347,27 +441,27 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
                 <Text
                   style={[
                     styles.detailDayTagText,
-                    selectedDay.day === 23
+                    isTodaySelected
                       ? { color: theme.colors.primary }
                       : { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {selectedDay.day === 23 ? 'Today' : `Day ${selectedDay.day}`}
+                  {isTodaySelected ? 'Today' : `Day ${activeSelected.day}`}
                 </Text>
               </View>
             </View>
-            <Text style={styles.detailShiftText}>Shift Window: 09:00 AM – 05:00 PM</Text>
+            <Text style={styles.detailShiftText}>Shift Window: Standard Schedule</Text>
           </View>
 
           {/* Status Pill */}
           <View
             style={[
               styles.detailStatusPill,
-              selectedDay.status === 'extra' || selectedDay.status === 'active'
+              activeSelected.status === 'extra' || activeSelected.status === 'active'
                 ? { backgroundColor: '#85F8C460' }
-                : selectedDay.status === 'deficit'
+                : activeSelected.status === 'deficit'
                 ? { backgroundColor: theme.colors.errorContainer }
-                : selectedDay.status === 'warning'
+                : activeSelected.status === 'warning'
                 ? { backgroundColor: '#FFECE2' }
                 : { backgroundColor: theme.colors.surfaceContainer },
             ]}
@@ -375,11 +469,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             <View
               style={[
                 styles.detailStatusDot,
-                selectedDay.status === 'extra' || selectedDay.status === 'active'
+                activeSelected.status === 'extra' || activeSelected.status === 'active'
                   ? { backgroundColor: theme.colors.secondaryBright }
-                  : selectedDay.status === 'deficit'
+                  : activeSelected.status === 'deficit'
                   ? { backgroundColor: theme.colors.tertiaryBright }
-                  : selectedDay.status === 'warning'
+                  : activeSelected.status === 'warning'
                   ? { backgroundColor: theme.colors.warning }
                   : { backgroundColor: theme.colors.outline },
               ]}
@@ -387,26 +481,28 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             <Text
               style={[
                 styles.detailStatusLabel,
-                selectedDay.status === 'extra' || selectedDay.status === 'active'
+                activeSelected.status === 'extra' || activeSelected.status === 'active'
                   ? { color: theme.colors.onSecondaryContainer }
-                  : selectedDay.status === 'deficit'
+                  : activeSelected.status === 'deficit'
                   ? { color: theme.colors.tertiaryBright }
-                  : selectedDay.status === 'warning'
+                  : activeSelected.status === 'warning'
                   ? { color: theme.colors.warning }
                   : { color: theme.colors.onSurfaceVariant },
               ]}
             >
-              {selectedDay.status === 'extra'
-                ? `${selectedDay.delta} Banked`
-                : selectedDay.status === 'deficit'
-                ? `${selectedDay.delta} Deficit`
-                : selectedDay.status === 'active'
-                ? '+14m Projected'
-                : selectedDay.status === 'warning'
+              {activeSelected.status === 'extra'
+                ? `${activeSelected.delta} Banked`
+                : activeSelected.status === 'deficit'
+                ? `${activeSelected.delta} Deficit`
+                : activeSelected.status === 'active'
+                ? 'Working Live'
+                : activeSelected.status === 'warning'
                 ? 'Missing Clock-Out'
-                : selectedDay.status === 'weekend'
+                : activeSelected.status === 'weekend'
                 ? 'Weekend Off'
-                : 'Balanced (0m)'}
+                : activeSelected.inTime
+                ? 'Balanced (0m)'
+                : 'Not Recorded'}
             </Text>
           </View>
         </View>
@@ -416,7 +512,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
           <View style={styles.detailProgressRow}>
             <Text style={styles.detailProgressLabel}>Productive Logged</Text>
             <Text style={styles.detailProgressValue}>
-              {selectedDay.worked || '7h 45m'}{' '}
+              {activeSelected.worked || '0h 00m'}{' '}
               <Text style={{ fontWeight: '400', color: theme.colors.onSurfaceVariant }}>
                 / 7h 45m
               </Text>
@@ -427,11 +523,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
               style={[
                 styles.detailFill,
                 {
-                  width: `${selectedDay.progressPercent || 82}%`,
+                  width: `${activeSelected.progressPercent || 0}%`,
                   backgroundColor:
-                    selectedDay.status === 'deficit'
+                    activeSelected.status === 'deficit'
                       ? theme.colors.tertiaryBright
-                      : selectedDay.status === 'warning'
+                      : activeSelected.status === 'warning'
                       ? theme.colors.tertiaryContainer
                       : theme.colors.primaryContainer,
                 },
@@ -449,7 +545,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             <View>
               <Text style={styles.detailPunchCaption}>PUNCHED IN</Text>
               <Text style={styles.detailPunchTime}>
-                {selectedDay.inTime || '09:00 AM'}
+                {activeSelected.inTime || 'Unrecorded'}
               </Text>
             </View>
           </View>
@@ -463,10 +559,10 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
               <Text
                 style={[
                   styles.detailPunchTime,
-                  selectedDay.status === 'active' && { color: theme.colors.primary },
+                  activeSelected.status === 'active' && { color: theme.colors.primary },
                 ]}
               >
-                {selectedDay.outTime || '05:00 PM'}
+                {activeSelected.outTime || 'Unrecorded'}
               </Text>
             </View>
           </View>
@@ -478,18 +574,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             style={styles.detailTimelineBtn}
             onPress={() =>
               showToast(
-                `Punch sequence for Oct ${selectedDay.day}: In ${selectedDay.inTime || '09:00 AM'} → Out ${selectedDay.outTime || '05:00 PM'}`
+                `Punch details: In ${activeSelected.inTime || 'Unrecorded'} → Out ${activeSelected.outTime || 'Unrecorded'}`
               )
             }
             activeOpacity={0.7}
           >
             <MaterialIcons name="timeline" size={18} color={theme.colors.onSurface} />
-            <Text style={styles.detailTimelineBtnText}>View Timeline</Text>
+            <Text style={styles.detailTimelineBtnText}>View Details</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.detailAdjustBtn}
-            onPress={() => onOpenAdjustment(`Oct ${selectedDay.day}, 2026`)}
+            onPress={() => onOpenAdjustment(activeSelected.dateStr || `${yearNum}-${monthNum.toString().padStart(2, '0')}-${activeSelected.day.toString().padStart(2, '0')}`)}
             activeOpacity={0.85}
           >
             <MaterialIcons name="edit-calendar" size={18} color="#FFFFFF" />

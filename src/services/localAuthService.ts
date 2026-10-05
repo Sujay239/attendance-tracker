@@ -87,16 +87,6 @@ function generateUUID(): string {
   return 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
 }
 
-const DEFAULT_USER: User = {
-  id: 'local-user',
-  name: 'Sarah Jenkins',
-  email: 'sarah.jenkins@timetrack.internal',
-  passwordHash: sha256('pass123:salt_default_123'),
-  salt: 'salt_default_123',
-  createdAt: '2026-10-01T00:00:00.000Z',
-  lastLoginAt: new Date().toISOString(),
-};
-
 export class LocalAuthService {
   private activeToken: string | null = null;
 
@@ -105,19 +95,9 @@ export class LocalAuthService {
     return user !== null;
   }
 
-  public async getCurrentUser(): Promise<{ id: string; name: string; email: string; createdAt: string; lastLoginAt: string } | null> {
-    let user = await localStorage.getUser();
-    if (!user) {
-      user = DEFAULT_USER;
-      await localStorage.saveUser(user);
-    }
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      createdAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt,
-    };
+  public async getCurrentUser(): Promise<User | null> {
+    const user = await localStorage.getUser();
+    return user;
   }
 
   public async getSessionToken(): Promise<string | null> {
@@ -129,19 +109,29 @@ export class LocalAuthService {
   public async setupAccount(
     name: string,
     email: string,
-    password: string
+    password: string,
+    avatar?: string,
+    shiftSettings?: Partial<any>
   ): Promise<{ user: User; sessionToken: string }> {
+    if (!name || name.trim().length === 0) {
+      throw new Error('Please enter your name.');
+    }
+
     if (!password || password.length < 4) {
-      throw new Error('Password must be at least 4 characters long.');
+      throw new Error('Passcode must be at least 4 digits/characters.');
     }
 
     const salt = generateSalt();
     const passwordHash = sha256(password + ':' + salt);
 
     const user: User = {
-      id: 'local-user',
-      name: name.trim() || 'Sarah Jenkins',
-      email: email.trim().toLowerCase() || 'sarah.jenkins@timetrack.internal',
+      id: 'user_' + Date.now().toString(36),
+      name: name.trim(),
+      email: email ? email.trim().toLowerCase() : `${name.trim().toLowerCase().replace(/\s+/g, '.')}@internal.app`,
+      avatar: avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+      title: 'Active Specialist',
+      department: 'General Operations',
+      officeLocation: 'Main Workspace',
       passwordHash,
       salt,
       createdAt: new Date().toISOString(),
@@ -149,6 +139,10 @@ export class LocalAuthService {
     };
 
     await localStorage.saveUser(user);
+
+    if (shiftSettings) {
+      await localStorage.saveSettings(shiftSettings);
+    }
 
     const sessionToken = generateUUID();
     this.activeToken = sessionToken;
@@ -159,11 +153,10 @@ export class LocalAuthService {
 
   public async login(
     password: string
-  ): Promise<{ sessionToken: string; user: { id: string; name: string; email: string } }> {
-    let user = await localStorage.getUser();
+  ): Promise<{ sessionToken: string; user: User }> {
+    const user = await localStorage.getUser();
     if (!user) {
-      user = DEFAULT_USER;
-      await localStorage.saveUser(user);
+      throw new Error('No user account configured. Please complete initial setup.');
     }
 
     const testHash = sha256(password + ':' + user.salt);
@@ -180,11 +173,7 @@ export class LocalAuthService {
 
     return {
       sessionToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      },
+      user,
     };
   }
 
@@ -194,18 +183,9 @@ export class LocalAuthService {
   }
 
   public async validateSession(): Promise<boolean> {
-    let token = await this.getSessionToken();
-    let user = await localStorage.getUser();
-    if (!user) {
-      // First app launch: automatically create default user & active session
-      user = DEFAULT_USER;
-      await localStorage.saveUser(user);
-      token = 'sess_local_default';
-      this.activeToken = token;
-      await AsyncStorage.setItem(SESSION_TOKEN_KEY, token);
-      return true;
-    }
-    return Boolean(token);
+    const token = await this.getSessionToken();
+    const user = await localStorage.getUser();
+    return Boolean(token && user);
   }
 }
 

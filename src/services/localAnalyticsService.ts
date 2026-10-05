@@ -1,16 +1,17 @@
 import { localStorage } from './localStorageService';
 import { AnalyticsSummary } from './types';
-import { formatMinutesToHours, formatBalance } from './timeUtils';
+import { formatMinutesToHours, formatBalance, getLocalDateString } from './timeUtils';
 
 export class LocalAnalyticsService {
   public async getAnalyticsSummary(period: string = 'month'): Promise<AnalyticsSummary> {
     const records = await localStorage.getAttendanceRecords();
     const balanceState = await localStorage.getBalanceState();
+    const settings = await localStorage.getSettings();
 
     // Completed & corrected records
     const completed = records.filter((r) => r.status === 'COMPLETED' || r.status === 'CORRECTED');
 
-    const totalWorkingDays = completed.length || 22;
+    const totalWorkingDays = completed.length;
     let totalProductiveMinutes = 0;
     let totalRequiredMinutes = 0;
     let totalExtraMinutes = 0;
@@ -40,19 +41,56 @@ export class LocalAnalyticsService {
     }
 
     const missingClockOuts = records.filter((r) => r.status === 'MISSING_CLOCK_OUT').length;
-    const averageProductiveMinutes = totalWorkingDays > 0 ? Math.round(totalProductiveMinutes / totalWorkingDays) : 467;
-    const attendanceRatePercent = totalWorkingDays > 0 ? Math.round((onTimeDays / totalWorkingDays) * 100) : 91;
+    const averageProductiveMinutes = totalWorkingDays > 0 ? Math.round(totalProductiveMinutes / totalWorkingDays) : 0;
+    const attendanceRatePercent = totalWorkingDays > 0 ? Math.round((onTimeDays / totalWorkingDays) * 100) : 0;
 
-    // Weekly 5-day Bars
-    const weeklyBars = [
-      { day: 'Mon', date: '2026-10-05', hours: '8h 30m', minutes: 510, delta: '+45m', deltaMinutes: 45, heightPercent: 100, status: 'EXTRA' as const },
-      { day: 'Tue', date: '2026-10-06', hours: '7h 45m', minutes: 465, delta: '0m', deltaMinutes: 0, heightPercent: 82, status: 'BALANCED' as const },
-      { day: 'Wed', date: '2026-10-07', hours: '7h 25m', minutes: 445, delta: '−20m', deltaMinutes: -20, heightPercent: 70, status: 'DEFICIT' as const },
-      { day: 'Thu', date: '2026-10-08', hours: '7h 55m', minutes: 475, delta: '+10m', deltaMinutes: 10, heightPercent: 86, status: 'EXTRA' as const },
-      { day: 'Fri', date: '2026-10-09', hours: '8h 05m', minutes: 485, delta: '+20m', deltaMinutes: 20, heightPercent: 92, status: 'EXTRA' as const },
-    ];
+    // Build Current Week (Mon - Fri) Bars dynamically
+    const now = new Date();
+    // Find Monday of current week
+    const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + mondayOffset);
 
-    // Progressive cumulative trend line points
+    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    const weeklyBars = dayLabels.map((label, idx) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + idx);
+      const dateStr = getLocalDateString(d, settings.timezone);
+      const rec = records.find((r) => r.date === dateStr);
+
+      if (rec && rec.status !== 'MISSING_CLOCK_OUT') {
+        const h = Math.floor(rec.productiveMinutes / 60);
+        const m = rec.productiveMinutes % 60;
+        const delta = rec.dailyBalanceMinutes >= 0 ? `+${rec.dailyBalanceMinutes}m` : `${rec.dailyBalanceMinutes}m`;
+        const heightPercent = Math.min(100, Math.round((rec.productiveMinutes / (rec.requiredProductiveMinutes || 465)) * 100));
+        const status = rec.dailyBalanceMinutes > 0 ? ('EXTRA' as const) : rec.dailyBalanceMinutes < 0 ? ('DEFICIT' as const) : ('BALANCED' as const);
+
+        return {
+          day: label,
+          date: dateStr,
+          hours: `${h}h ${m}m`,
+          minutes: rec.productiveMinutes,
+          delta,
+          deltaMinutes: rec.dailyBalanceMinutes,
+          heightPercent,
+          status,
+        };
+      }
+
+      return {
+        day: label,
+        date: dateStr,
+        hours: '0h 0m',
+        minutes: 0,
+        delta: '0m',
+        deltaMinutes: 0,
+        heightPercent: 0,
+        status: 'BALANCED' as const,
+      };
+    });
+
+    // Progressive cumulative trend line points from actual completed records
     const sorted = [...completed].sort((a, b) => a.date.localeCompare(b.date));
     const trendPoints = sorted.map((r) => ({
       date: r.date,
@@ -60,29 +98,26 @@ export class LocalAnalyticsService {
       cumulativeBalance: r.cumulativeBalanceMinutes ?? 0,
     }));
 
-    if (trendPoints.length === 0) {
-      trendPoints.push(
-        { date: '2026-10-01', dailyBalance: 15, cumulativeBalance: 15 },
-        { date: '2026-10-10', dailyBalance: 20, cumulativeBalance: 30 },
-        { date: '2026-10-20', dailyBalance: 10, cumulativeBalance: 40 },
-        { date: '2026-10-31', dailyBalance: 10, cumulativeBalance: 50 }
-      );
-    }
-
     const netBalanceFormatted = formatBalance(balanceState.cumulativeBalanceMinutes);
-    const totalHoursFormatted = formatMinutesToHours(totalProductiveMinutes || 10280);
+    const totalHoursFormatted = formatMinutesToHours(totalProductiveMinutes);
 
-    const managerSnippet = `October 2026 Closeout: ${totalHoursFormatted} logged (${(
-      ((totalProductiveMinutes || 10280) / (totalRequiredMinutes || 10230)) *
-      100
-    ).toFixed(1)}% adherence). Cumulative Time Bank: ${netBalanceFormatted.text} extra. Punctuality rate ${attendanceRatePercent}%. Stored securely in internal device storage. Ready for payroll sign-off.`;
+    const totalDaysCount = totalWorkingDays || 1;
+    const earlyPercent = totalWorkingDays > 0 ? Math.round((earlyDays / totalDaysCount) * 100) : 0;
+    const latePercent = totalWorkingDays > 0 ? Math.round((lateDays / totalDaysCount) * 100) : 0;
+    const pendingPercent = totalWorkingDays > 0 ? Math.round((missingClockOuts / totalDaysCount) * 100) : 0;
+
+    const managerSnippet = totalWorkingDays > 0
+      ? `Audit Summary: ${totalHoursFormatted} logged across ${totalWorkingDays} shifts (${(
+          (totalProductiveMinutes / (totalRequiredMinutes || 1)) * 100
+        ).toFixed(1)}% adherence). Cumulative Time Bank: ${netBalanceFormatted.text}. Punctuality rate ${attendanceRatePercent}%. Stored securely in internal device storage. Ready for payroll sign-off.`
+      : `Audit Summary: 0h logged across 0 shifts. Cumulative Time Bank: ${netBalanceFormatted.text}. Stored securely in internal device storage.`;
 
     return {
       totalWorkingDays,
-      totalProductiveMinutes: totalProductiveMinutes || 10280,
-      totalRequiredMinutes: totalRequiredMinutes || 10230,
-      totalExtraMinutes: totalExtraMinutes || 85,
-      totalDeficitMinutes: totalDeficitMinutes || 35,
+      totalProductiveMinutes,
+      totalRequiredMinutes,
+      totalExtraMinutes,
+      totalDeficitMinutes,
       netBalanceMinutes: balanceState.cumulativeBalanceMinutes,
       averageProductiveMinutes,
       onTimeDays,
@@ -93,9 +128,9 @@ export class LocalAnalyticsService {
       weeklyBars,
       trendPoints,
       cadence: {
-        earlyOnTime: { days: 16, percent: 73 },
-        lateRecovered: { days: 5, percent: 23 },
-        pendingAdjustment: { days: missingClockOuts || 1, percent: 4 },
+        earlyOnTime: { days: earlyDays, percent: earlyPercent },
+        lateRecovered: { days: lateDays, percent: latePercent },
+        pendingAdjustment: { days: missingClockOuts, percent: pendingPercent },
       },
       managerSnippet,
     };

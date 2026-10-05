@@ -12,28 +12,35 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
-import { INITIAL_USER } from '../data/mockData';
 import { Logo } from '../components/Logo';
-
 import { api } from '../services/apiClient';
 
 interface SettingsScreenProps {
+  currentUser?: any;
+  onProfileUpdated?: (user: any) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   onLogout?: () => void;
 }
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLogout }) => {
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  currentUser: propUser,
+  onProfileUpdated,
+  showToast,
+  onLogout,
+}) => {
   const [autoDeductLunch, setAutoDeductLunch] = useState(true);
   const [comfortBuffer, setComfortBuffer] = useState(true);
   const [overtimeAlerts, setOvertimeAlerts] = useState(true);
   const [lateGracePeriod, setLateGracePeriod] = useState(true);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(propUser || null);
+  const [settings, setSettings] = useState<any>(null);
 
   React.useEffect(() => {
     let isMounted = true;
     api.getSettings()
       .then((cfg) => {
         if (isMounted && cfg) {
+          setSettings(cfg);
           setAutoDeductLunch(cfg.lunchMinutes > 0);
           setComfortBuffer(cfg.bufferMinutes > 0);
         }
@@ -53,6 +60,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
     };
   }, []);
 
+  const user = currentUser || propUser || {
+    name: 'Your Name',
+    title: 'Personal Account',
+    department: 'Team Member',
+    employeeId: 'EMP-01',
+    officeLocation: 'Device Internal Memory',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -62,22 +78,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
       {/* 1. Profile Header Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileHeaderRow}>
-          <Image source={{ uri: INITIAL_USER.avatar }} style={styles.avatarLarge} />
+          <Image source={{ uri: user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80' }} style={styles.avatarLarge} />
           <View style={styles.profileTexts}>
             <View style={styles.profileNameRow}>
-              <Text style={styles.profileName}>{INITIAL_USER.name}</Text>
+              <Text style={styles.profileName}>{user.name}</Text>
               <MaterialIcons name="verified" size={16} color={theme.colors.primary} />
             </View>
-            <Text style={styles.profileTitle}>{INITIAL_USER.title}</Text>
+            <Text style={styles.profileTitle}>{user.title || user.email || 'Shift Tracker User'}</Text>
             <Text style={styles.profileMeta}>
-              {INITIAL_USER.department} • {INITIAL_USER.employeeId}
+              {user.department || 'Personal Setup'} • {user.employeeId || 'LOCAL-SYNC'}
             </Text>
           </View>
         </View>
 
         <View style={styles.locationStrip}>
           <MaterialIcons name="location-on" size={16} color={theme.colors.onSurfaceVariant} />
-          <Text style={styles.locationText}>{INITIAL_USER.officeLocation}</Text>
+          <Text style={styles.locationText}>{user.officeLocation || 'Device Internal Storage'}</Text>
         </View>
       </View>
 
@@ -134,7 +150,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
             <Text style={styles.settingDesc}>Target duration excluding deductions</Text>
           </View>
           <View style={styles.valuePill}>
-            <Text style={styles.valuePillText}>7h 45m</Text>
+            <Text style={styles.valuePillText}>
+              {Math.floor((settings?.requiredProductiveMinutes || 465) / 60)}h{' '}
+              {((settings?.requiredProductiveMinutes || 465) % 60).toString().padStart(2, '0')}m
+            </Text>
           </View>
         </View>
 
@@ -144,7 +163,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
             <Text style={styles.settingDesc}>Core operating bounds</Text>
           </View>
           <View style={styles.valuePill}>
-            <Text style={styles.valuePillText}>10:00 AM – 7:00 PM</Text>
+            <Text style={styles.valuePillText}>
+              {settings?.workStartTime || '10:00 AM'} – {settings?.workEndTime || '07:00 PM'}
+            </Text>
           </View>
         </View>
 
@@ -154,7 +175,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
             <Text style={styles.settingDesc}>Automatic daily lunch deduction</Text>
           </View>
           <View style={styles.valuePill}>
-            <Text style={styles.valuePillText}>1h 00m</Text>
+            <Text style={styles.valuePillText}>{settings?.lunchMinutes ?? 60}m</Text>
           </View>
         </View>
 
@@ -164,7 +185,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
             <Text style={styles.settingDesc}>Auto-applied comfort delta</Text>
           </View>
           <View style={styles.valuePill}>
-            <Text style={styles.valuePillText}>15m</Text>
+            <Text style={styles.valuePillText}>{settings?.bufferMinutes ?? 15}m</Text>
           </View>
         </View>
       </View>
@@ -341,7 +362,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
                   onPress: async () => {
                     try {
                       await api.clearAllData();
-                      showToast('Internal memory cleared. Default seed initialized.', 'info');
+                      showToast('Internal memory cleared. Restarting fresh setup...', 'info');
+                      if (onLogout) onLogout();
                     } catch (err: any) {
                       showToast(err.message || 'Error clearing data', 'error');
                     }

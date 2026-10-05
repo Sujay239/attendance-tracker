@@ -11,10 +11,10 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle } from 'react-native-svg';
 import { theme } from '../theme/theme';
-import { INITIAL_USER, INITIAL_RECORDS } from '../data/mockData';
 
 interface DashboardScreenProps {
   dashboardData?: any;
+  currentUser?: any;
   onClockOutPress: () => void;
   onNavigateHistory: () => void;
   onOpenAdjustment?: (date: string) => void;
@@ -26,6 +26,7 @@ interface DashboardScreenProps {
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   dashboardData,
+  currentUser,
   onClockOutPress,
   onNavigateHistory,
   onOpenAdjustment,
@@ -35,10 +36,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   onLunchPress,
 }) => {
   // Live seconds timer for wall clock and productive timer
-  const [seconds, setSeconds] = useState(12);
-  const [minutes, setMinutes] = useState(24);
-  const [hours, setHours] = useState(6);
-  const [currentTimeStr, setCurrentTimeStr] = useState('4:32:15 PM');
+  const [seconds, setSeconds] = useState(0);
+  const [minutes, setMinutes] = useState(0);
+  const [hours, setHours] = useState(0);
+  const [currentTimeStr, setCurrentTimeStr] = useState('');
 
   const clockInIso = dashboardData?.todayRecord?.clockIn;
   const missingPunches = dashboardData?.missingClockOuts || [];
@@ -82,6 +83,22 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
     return () => clearInterval(timer);
   }, [isClockedIn, clockInIso]);
 
+  // Sync productive hours when not live-timing or when todayRecord exists
+  useEffect(() => {
+    if (!isClockedIn) {
+      if (dashboardData?.todayRecord) {
+        const prod = dashboardData.todayRecord.productiveMinutes || 0;
+        setHours(Math.floor(prod / 60));
+        setMinutes(prod % 60);
+        setSeconds(0);
+      } else {
+        setHours(0);
+        setMinutes(0);
+        setSeconds(0);
+      }
+    }
+  }, [isClockedIn, dashboardData?.todayRecord]);
+
   const formattedHours = hours.toString().padStart(2, '0');
   const formattedMins = minutes.toString().padStart(2, '0');
   const formattedSecs = seconds.toString().padStart(2, '0');
@@ -92,11 +109,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   const totalProductiveMinutes = hours * 60 + minutes;
   const requiredProductiveMinutes = dashboardData?.requiredMinutes || 465;
   const targetPercent = Math.min(1, Math.max(0, totalProductiveMinutes / requiredProductiveMinutes));
-  const strokeDashoffset = circumference * (1 - (targetPercent || 0.82));
-  const percentDisplay = Math.round((targetPercent || 0.82) * 100);
+  const strokeDashoffset = circumference * (1 - targetPercent);
+  const percentDisplay = Math.round(targetPercent * 100);
 
-  const cumulativeBalance = dashboardData?.cumulativeBalanceMinutes ?? 39;
+  const cumulativeBalance = dashboardData?.cumulativeBalanceMinutes ?? 0;
   const balanceSign = cumulativeBalance >= 0 ? `+${cumulativeBalance}` : `${cumulativeBalance}`;
+
+  const firstName = currentUser?.name?.split(' ')[0] || 'there';
+  const nowHour = new Date().getHours();
+  const greetingWord = nowHour < 12 ? 'Good morning' : nowHour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <ScrollView
@@ -110,14 +131,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           <View style={styles.dateBadge}>
             <MaterialIcons name="wb-sunny" size={14} color={theme.colors.primary} />
             <Text style={styles.dateBadgeText}>
-              {dashboardData?.date ? `Today, ${dashboardData.date}` : 'Friday, Oct 3, 2026'}
+              {dashboardData?.date ? `Today, ${dashboardData.date}` : new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
             </Text>
           </View>
-          <Text style={styles.greetingTitle}>Good afternoon, Sarah</Text>
+          <Text style={styles.greetingTitle}>{greetingWord}, {firstName}</Text>
         </View>
 
         <View style={styles.wallClockBox}>
-          <Text style={styles.wallClockTime}>{currentTimeStr}</Text>
+          <Text style={styles.wallClockTime}>{currentTimeStr || '--:--:--'}</Text>
           <Text style={styles.wallClockLabel}>Live Office Time</Text>
         </View>
       </View>
@@ -222,15 +243,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </View>
           <View style={styles.progressLabels}>
             <Text style={styles.progressLabelText}>
-              Goal: <Text style={styles.progressLabelBold}>7h 45m</Text>
+              Goal: <Text style={styles.progressLabelBold}>{Math.floor(requiredProductiveMinutes / 60)}h {requiredProductiveMinutes % 60}m</Text>
             </Text>
             <Text style={styles.progressLabelText}>
-              Remaining:{' '}
+              {isClockedIn ? 'Remaining: ' : 'Required: '}
               <Text style={styles.progressLabelGreen}>
-                {dashboardData?.remainingMinutes != null
-                  ? `${Math.floor(dashboardData.remainingMinutes / 60)}h ${dashboardData.remainingMinutes % 60}m`
-                  : '1h 21m'}{' '}
-                (est. {dashboardData?.suggestedCompletionTime || '5:53 PM'})
+                {isClockedIn
+                  ? `${Math.floor((dashboardData?.remainingMinutes || 0) / 60)}h ${(dashboardData?.remainingMinutes || 0) % 60}m (est. ${dashboardData?.suggestedCompletionTime || '07:00 PM'})`
+                  : (dashboardData?.todayRecord ? 'Shift completed' : `${Math.floor(requiredProductiveMinutes / 60)}h ${requiredProductiveMinutes % 60}m`)}
               </Text>
             </Text>
           </View>
@@ -240,11 +260,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         <View style={styles.heroStatGrid}>
           <View style={styles.heroStatCol}>
             <Text style={styles.heroStatCaption}>GROSS OFFICE DURATION</Text>
-            <Text style={styles.heroStatValue}>6h 24m elapsed</Text>
+            <Text style={styles.heroStatValue}>
+              {isClockedIn
+                ? `${Math.floor((dashboardData?.officeMinutes || 0) / 60)}h ${(dashboardData?.officeMinutes || 0) % 60}m elapsed`
+                : (dashboardData?.todayRecord ? `${Math.floor((dashboardData.todayRecord.officeMinutes || 0) / 60)}h ${(dashboardData.todayRecord.officeMinutes || 0) % 60}m logged` : '0m (Not started)')}
+            </Text>
           </View>
           <View style={styles.heroStatCol}>
             <Text style={styles.heroStatCaption}>DEDUCTIONS</Text>
-            <Text style={styles.heroStatValue}>Lunch (1h) + Buffer (15m)</Text>
+            <Text style={styles.heroStatValue}>
+              Lunch ({dashboardData?.todayRecord?.lunchMinutes ?? 60}m) + Buffer ({dashboardData?.todayRecord?.bufferMinutes ?? 15}m)
+            </Text>
           </View>
         </View>
       </View>
@@ -421,89 +447,85 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         </View>
 
         <View style={styles.recentList}>
-          {((dashboardData?.recentRecords && dashboardData.recentRecords.length > 0)
-            ? dashboardData.recentRecords.map((r: any) => {
-                const isTodayRec = r.date === dashboardData?.date;
-                const inTimeFormatted = r.clockIn ? (r.clockIn.length > 10 ? new Date(r.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockIn) : '10:00 AM';
-                const outTimeFormatted = r.clockOut ? (r.clockOut.length > 10 ? new Date(r.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockOut) : (r.status === 'WORKING' ? 'In Progress' : 'Unrecorded');
-                const productiveFormatted = `${Math.floor((r.productiveMinutes || 0) / 60)}h ${Math.abs((r.productiveMinutes || 0) % 60).toString().padStart(2, '0')}m`;
-                const deltaFormatted = r.dailyBalanceMinutes > 0 ? `+${r.dailyBalanceMinutes}m Extra` : r.dailyBalanceMinutes < 0 ? `${r.dailyBalanceMinutes}m Adjust` : 'Balanced (0m)';
-                const recStatus = r.status === 'WORKING' ? 'active' : (r.dailyBalanceMinutes > 0 ? 'extra' : (r.dailyBalanceMinutes < 0 ? 'deficit' : 'balanced'));
+          {dashboardData?.recentRecords && dashboardData.recentRecords.length > 0 ? (
+            dashboardData.recentRecords.map((r: any) => {
+              const isTodayRec = r.date === dashboardData?.date;
+              const inTimeFormatted = r.clockIn ? (r.clockIn.length > 10 ? new Date(r.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockIn) : '10:00 AM';
+              const outTimeFormatted = r.clockOut ? (r.clockOut.length > 10 ? new Date(r.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r.clockOut) : (r.status === 'WORKING' ? 'In Progress' : 'Unrecorded');
+              const productiveFormatted = `${Math.floor((r.productiveMinutes || 0) / 60)}h ${Math.abs((r.productiveMinutes || 0) % 60).toString().padStart(2, '0')}m`;
+              const deltaFormatted = r.dailyBalanceMinutes > 0 ? `+${r.dailyBalanceMinutes}m Extra` : r.dailyBalanceMinutes < 0 ? `${r.dailyBalanceMinutes}m Adjust` : 'Balanced (0m)';
+              const recStatus = r.status === 'WORKING' ? 'active' : (r.dailyBalanceMinutes > 0 ? 'extra' : (r.dailyBalanceMinutes < 0 ? 'deficit' : 'balanced'));
 
-                return {
-                  id: r.id || r.date,
-                  dayLabel: isTodayRec ? `Today (${r.date.slice(5)})` : r.date,
-                  isToday: isTodayRec,
-                  inTime: inTimeFormatted,
-                  outTime: outTimeFormatted,
-                  productiveDuration: productiveFormatted,
-                  status: recStatus,
-                  deltaStr: deltaFormatted,
-                };
-              })
-            : INITIAL_RECORDS.slice(0, 5)
-          ).map((rec: any) => {
-            return (
-              <View key={rec.id} style={styles.recentItem}>
-                <View style={styles.recentItemLeft}>
-                  <View
-                    style={[
-                      styles.recentIconBox,
-                      rec.isToday
-                        ? { backgroundColor: theme.colors.primaryFixed }
-                        : { backgroundColor: theme.colors.surfaceContainerHigh },
-                    ]}
-                  >
-                    <MaterialIcons
-                      name={
-                        rec.isToday
-                          ? 'today'
-                          : rec.status === 'extra'
-                          ? 'check-circle'
-                          : rec.status === 'deficit'
-                          ? 'warning'
-                          : 'schedule'
-                      }
-                      size={20}
-                      color={rec.isToday ? theme.colors.primary : theme.colors.onSurfaceVariant}
-                    />
-                  </View>
-                  <View style={styles.recentItemTexts}>
-                    <View style={styles.recentItemDayRow}>
-                      <Text style={styles.recentItemTitle}>{rec.dayLabel}</Text>
-                      {rec.isToday && <View style={styles.recentPulse} />}
+              return (
+                <View key={r.id || r.date} style={styles.recentItem}>
+                  <View style={styles.recentItemLeft}>
+                    <View
+                      style={[
+                        styles.recentIconBox,
+                        isTodayRec
+                          ? { backgroundColor: theme.colors.primaryFixed }
+                          : { backgroundColor: theme.colors.surfaceContainerHigh },
+                      ]}
+                    >
+                      <MaterialIcons
+                        name={
+                          isTodayRec
+                            ? 'today'
+                            : recStatus === 'extra'
+                            ? 'check-circle'
+                            : recStatus === 'deficit'
+                            ? 'warning'
+                            : 'schedule'
+                        }
+                        size={20}
+                        color={isTodayRec ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                      />
                     </View>
-                    <Text style={styles.recentItemTimes}>
-                      {rec.inTime} → {rec.outTime}
+                    <View style={styles.recentItemTexts}>
+                      <View style={styles.recentItemDayRow}>
+                        <Text style={styles.recentItemTitle}>{isTodayRec ? `Today (${r.date.slice(5)})` : r.date}</Text>
+                        {isTodayRec && <View style={styles.recentPulse} />}
+                      </View>
+                      <Text style={styles.recentItemTimes}>
+                        {inTimeFormatted} → {outTimeFormatted}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.recentItemRight}>
+                    <Text
+                      style={[
+                        styles.recentItemHours,
+                        isTodayRec && { color: theme.colors.primary },
+                      ]}
+                    >
+                      {productiveFormatted}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.recentItemTag,
+                        recStatus === 'extra'
+                          ? { color: theme.colors.secondaryBright }
+                          : recStatus === 'deficit'
+                          ? { color: theme.colors.tertiaryBright }
+                          : { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {deltaFormatted}
                     </Text>
                   </View>
                 </View>
-
-                <View style={styles.recentItemRight}>
-                  <Text
-                    style={[
-                      styles.recentItemHours,
-                      rec.isToday && { color: theme.colors.primary },
-                    ]}
-                  >
-                    {rec.productiveDuration}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.recentItemTag,
-                      rec.status === 'extra'
-                        ? { color: theme.colors.secondaryBright }
-                        : rec.status === 'deficit'
-                        ? { color: theme.colors.tertiaryBright }
-                        : { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {rec.deltaStr}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
+              );
+            })
+          ) : (
+            <View style={styles.emptyRecentBox}>
+              <MaterialIcons name="history-toggle-off" size={36} color={theme.colors.outline} />
+              <Text style={styles.emptyRecentTitle}>No Shifts Recorded Yet</Text>
+              <Text style={styles.emptyRecentSubtitle}>
+                Tap the Clock In button above to start your first tracked shift.
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     </ScrollView>
@@ -1078,5 +1100,26 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     marginTop: 2,
+  },
+  emptyRecentBox: {
+    backgroundColor: theme.colors.surfaceContainerLowest,
+    padding: 24,
+    borderRadius: theme.radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  emptyRecentTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+    marginTop: 4,
+  },
+  emptyRecentSubtitle: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+    lineHeight: 17,
+    paddingHorizontal: 16,
   },
 });

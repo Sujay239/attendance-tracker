@@ -17,8 +17,14 @@ class ApiClient {
     return { initialized, user };
   }
 
-  public async setupAccount(name: string, email: string, password: string): Promise<any> {
-    return localAuth.setupAccount(name, email, password);
+  public async setupAccount(
+    name: string,
+    email: string,
+    password: string,
+    avatar?: string,
+    shiftSettings?: Partial<Settings>
+  ): Promise<any> {
+    return localAuth.setupAccount(name, email, password, avatar, shiftSettings);
   }
 
   public async login(password: string): Promise<any> {

@@ -8,7 +8,6 @@ import { Toast } from './src/components/Toast';
 import { ClockOutModal } from './src/components/ClockOutModal';
 import { AdjustmentModal } from './src/components/AdjustmentModal';
 import { AuthModal } from './src/components/AuthModal';
-import { INITIAL_USER } from './src/data/mockData';
 import { api } from './src/services/apiClient';
 
 import { DashboardScreen } from './src/screens/DashboardScreen';
@@ -24,7 +23,8 @@ const MainApp = () => {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Authentication state
+  // Authentication & Profile state
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [isAuthSetup, setIsAuthSetup] = useState(false);
@@ -54,7 +54,7 @@ const MainApp = () => {
         setIsClockedIn(data.attendanceStatus === 'WORKING');
       }
     } catch {
-      // Offline or server booting
+      // Offline fallback
     }
   }, []);
 
@@ -64,8 +64,9 @@ const MainApp = () => {
     const checkAuth = async () => {
       try {
         const session = await api.checkSession();
-        if (session && session.authenticated) {
+        if (session && session.authenticated && session.user) {
           if (isMounted) {
+            setCurrentUser(session.user);
             setIsAuthenticated(true);
             setAuthModalVisible(false);
             fetchDashboardState();
@@ -73,12 +74,19 @@ const MainApp = () => {
         } else {
           const authStatus = await api.getAuthStatus().catch(() => ({ initialized: false, user: null }));
           if (isMounted) {
-            setIsAuthSetup(!authStatus?.initialized);
-            setAuthModalVisible(true);
+            if (authStatus?.initialized && authStatus?.user) {
+              setCurrentUser(authStatus.user);
+              setIsAuthSetup(false);
+              setAuthModalVisible(true);
+            } else {
+              setIsAuthSetup(true);
+              setAuthModalVisible(true);
+            }
           }
         }
       } catch {
         if (isMounted) {
+          setIsAuthSetup(true);
           setAuthModalVisible(true);
         }
       }
@@ -96,7 +104,7 @@ const MainApp = () => {
       try {
         const res = await api.clockIn('Mobile daily check-in');
         showToast(
-          `Clocked in at ${res.attendance?.clockInTime || '10:00 AM'}. Status: ${res.status}`,
+          `Clocked in at ${res.attendance?.clockInTime || '10:00 AM'}. Shift started!`,
           'success'
         );
         setIsClockedIn(true);
@@ -147,7 +155,8 @@ const MainApp = () => {
   };
 
   const handleLogin = async (passcode: string) => {
-    await api.login(passcode);
+    const res = await api.login(passcode);
+    if (res?.user) setCurrentUser(res.user);
     setIsAuthenticated(true);
     setAuthModalVisible(false);
     showToast('Logged in successfully. Welcome!', 'success');
@@ -155,11 +164,18 @@ const MainApp = () => {
     setRefreshKey((k) => k + 1);
   };
 
-  const handleSetup = async (name: string, email: string, passcode: string) => {
-    await api.setupAccount(name, email, passcode);
+  const handleSetup = async (
+    name: string,
+    email: string,
+    passcode: string,
+    avatar: string,
+    shiftSettings: any
+  ) => {
+    const res = await api.setupAccount(name, email, passcode, avatar, shiftSettings);
+    if (res?.user) setCurrentUser(res.user);
     setIsAuthenticated(true);
     setAuthModalVisible(false);
-    showToast(`Account configured for ${name}! Welcome.`, 'success');
+    showToast(`Welcome, ${name}! Your personal tracker is ready.`, 'success');
     await fetchDashboardState();
     setRefreshKey((k) => k + 1);
   };
@@ -191,7 +207,7 @@ const MainApp = () => {
       <Header
         currentTab={activeTab}
         isClockedIn={isClockedIn}
-        userAvatar={INITIAL_USER.avatar}
+        userAvatar={currentUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'}
         onProfilePress={() => setActiveTab('settings')}
         onClockStatusPress={handleClockOutPress}
       />
@@ -202,13 +218,14 @@ const MainApp = () => {
           <DashboardScreen
             key={`dashboard-${refreshKey}`}
             dashboardData={dashboardData}
+            currentUser={currentUser}
             onClockOutPress={handleClockOutPress}
             onNavigateHistory={() => setActiveTab('history')}
             onOpenAdjustment={handleOpenAdjustment}
             showToast={showToast}
             isClockedIn={isClockedIn}
             onTakeBreak={() => showToast('Break logged: 15m buffer active', 'info')}
-            onLunchPress={() => showToast('Lunch pause (60m) is factored automatically', 'info')}
+            onLunchPress={() => showToast('Lunch pause is factored automatically', 'info')}
           />
         )}
 
@@ -238,6 +255,8 @@ const MainApp = () => {
         {activeTab === 'settings' && (
           <SettingsScreen
             key={`settings-${refreshKey}`}
+            currentUser={currentUser}
+            onProfileUpdated={(updated) => setCurrentUser(updated)}
             showToast={showToast}
             onLogout={handleLogout}
           />

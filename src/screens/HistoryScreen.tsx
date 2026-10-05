@@ -11,9 +11,41 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
-import { AttendanceRecord, INITIAL_RECORDS } from '../data/mockData';
-
 import { api } from '../services/apiClient';
+
+export interface AttendanceRecord {
+  id: string;
+  dateStr: string;
+  dayLabel: string;
+  weekday: string;
+  isToday?: boolean;
+  status: 'active' | 'extra' | 'deficit' | 'balanced' | 'missing';
+  statusLabel: string;
+  statusBadgeColor: string;
+  inTime: string;
+  outTime: string;
+  officeDuration: string;
+  productiveDuration: string;
+  deltaStr: string;
+  notes?: string;
+  isLate?: boolean;
+  lateDelta?: string;
+  timeline?: {
+    time: string;
+    title: string;
+    desc: string;
+    type: 'in' | 'window' | 'lunch' | 'buffer' | 'out';
+    badge?: string;
+  }[];
+  breakdown?: {
+    grossTime: string;
+    deductions: string;
+    netProductive: string;
+    requiredTarget: string;
+    dayBalance: string;
+    cumulativeBalance: string;
+  };
+}
 
 interface HistoryScreenProps {
   onOpenAdjustment: (date: string) => void;
@@ -26,8 +58,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'extra' | 'deficit' | 'balanced' | 'missing'>('all');
-  const [records, setRecords] = useState<AttendanceRecord[]>(INITIAL_RECORDS);
-  const [expandedId, setExpandedId] = useState<string>('rec-2');
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [expandedId, setExpandedId] = useState<string>('');
 
   const loadRecords = useCallback(async () => {
     try {
@@ -76,7 +108,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
             productiveDuration: productiveStr,
             deltaStr: r.dailyBalanceMinutes > 0 ? `+${r.dailyBalanceMinutes} min` : r.dailyBalanceMinutes < 0 ? `${r.dailyBalanceMinutes} min` : '0m',
             notes: r.notes || '',
-            timeline: r.id === '2026-10-02' ? INITIAL_RECORDS[1]?.timeline : undefined,
+            timeline: undefined,
             breakdown: {
               grossTime: officeStr,
               deductions: `−${Math.floor(((r.lunchMinutes || 60) + (r.bufferMinutes || 15)) / 60)}h ${((r.lunchMinutes || 60) + (r.bufferMinutes || 15)) % 60}m`,
@@ -141,6 +173,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
     return true;
   });
 
+  const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const completedRecords = records.filter(r => r.status === 'extra' || r.status === 'deficit' || r.status === 'balanced');
+  const totalDays = completedRecords.length;
+
   return (
     <ScrollView
       style={styles.container}
@@ -152,27 +188,27 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
         <View style={styles.overviewHeader}>
           <View style={styles.overviewTitleRow}>
             <MaterialIcons name="calendar-today" size={18} color={theme.colors.primary} />
-            <Text style={styles.overviewTitle}>October 2026</Text>
+            <Text style={styles.overviewTitle}>{currentMonthName}</Text>
           </View>
           <View style={styles.netPill}>
             <View style={styles.netPulseDot} />
-            <Text style={styles.netPillText}>+50m Net</Text>
+            <Text style={styles.netPillText}>{totalDays > 0 ? `${totalDays} Shifts Logged` : '0 Logged Shifts'}</Text>
           </View>
         </View>
 
         <View style={styles.overviewMetricsRow}>
           <View style={styles.overviewMetricCol}>
-            <Text style={styles.metricCaption}>WORKDAYS</Text>
-            <Text style={styles.metricVal}>22 Days</Text>
+            <Text style={styles.metricCaption}>WORKDAYS LOGGED</Text>
+            <Text style={styles.metricVal}>{totalDays} {totalDays === 1 ? 'Day' : 'Days'}</Text>
           </View>
           <View style={styles.overviewMetricCol}>
-            <Text style={styles.metricCaption}>LOGGED AVG</Text>
-            <Text style={styles.metricVal}>8h 02m</Text>
+            <Text style={styles.metricCaption}>ACTIVE FILTER</Text>
+            <Text style={styles.metricVal}>{activeFilter.toUpperCase()}</Text>
           </View>
           <View style={styles.overviewMetricCol}>
-            <Text style={styles.metricCaption}>STATUS</Text>
-            <Text style={[styles.metricVal, { color: theme.colors.secondaryBright }]}>
-              Surplus
+            <Text style={styles.metricCaption}>STORAGE</Text>
+            <Text style={[styles.metricVal, { color: theme.colors.primary }]}>
+              Device Private
             </Text>
           </View>
         </View>
@@ -307,8 +343,17 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
 
       {/* 4. Attendance Punch Cards List */}
       <View style={styles.cardsList}>
-        {filteredRecords.map((rec) => {
-          const isExpanded = expandedId === rec.id;
+        {filteredRecords.length === 0 ? (
+          <View style={styles.emptyHistoryBox}>
+            <MaterialIcons name="event-note" size={44} color={theme.colors.outline} />
+            <Text style={styles.emptyHistoryTitle}>No Punch Records Found</Text>
+            <Text style={styles.emptyHistorySubtitle}>
+              Your shift punches and adjustments will be organized here as you track your attendance.
+            </Text>
+          </View>
+        ) : (
+          filteredRecords.map((rec) => {
+            const isExpanded = expandedId === rec.id;
 
           // Special Card: Missing Punch Warning Alert
           if (rec.status === 'missing') {
@@ -626,7 +671,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
               )}
             </TouchableOpacity>
           );
-        })}
+        })
+      )}
       </View>
     </ScrollView>
   );
@@ -1180,5 +1226,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: theme.colors.onSurface,
+  },
+  emptyHistoryBox: {
+    backgroundColor: theme.colors.surfaceContainerLowest,
+    borderRadius: theme.radius.xl,
+    paddingVertical: 44,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    borderStyle: 'dashed',
+    gap: 8,
+  },
+  emptyHistoryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+  },
+  emptyHistorySubtitle: {
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

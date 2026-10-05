@@ -21,6 +21,11 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  avatar?: string;
+  title?: string;
+  department?: string;
+  employeeId?: string;
+  officeLocation?: string;
   passwordHash: string;
   salt: string;
   createdAt: string;
