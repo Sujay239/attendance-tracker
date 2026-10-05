@@ -34,7 +34,8 @@
     "web": "expo start --web",
     "server": "tsx server/index.ts",
     "test": "tsx server/__tests__/attendance.test.ts",
-    "dev": "expo start"
+    "dev": "expo start",
+    "android:build" : "npx eas-cli build --platform android --profile preview --non-interactive"
   },
   "private": true
 }
