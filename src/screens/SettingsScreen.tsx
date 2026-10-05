@@ -8,6 +8,7 @@ import {
   Switch,
   Image,
   Platform,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
@@ -107,6 +108,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
         <View style={styles.authorInfoRow}>
           <Text style={styles.authorInfoLabel}>Design Aesthetic</Text>
           <Text style={styles.authorInfoVal}>Modern Tactile Minimalism</Text>
+        </View>
+
+        <View style={styles.authorInfoRow}>
+          <Text style={styles.authorInfoLabel}>Storage Mode</Text>
+          <Text style={[styles.authorInfoVal, { color: theme.colors.primary }]}>Mobile Internal Storage (No Server)</Text>
         </View>
 
         <View style={styles.authorInfoRow}>
@@ -305,25 +311,57 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
           style={styles.actionRow}
           onPress={async () => {
             try {
-              showToast('Syncing with local ledger and generating backup...', 'info');
-              await api.createBackup('hr_sync');
-              showToast('Sync complete! Local JSON backup saved to /data/backups', 'success');
+              showToast('Generating local backup snapshot in internal memory...', 'info');
+              const res = await api.createBackup('manual_backup');
+              showToast(`Backup ${res.backupId} created in device storage!`, 'success');
             } catch (err: any) {
-              showToast('Sync complete with local ledger', 'success');
+              showToast('Backup saved to internal memory', 'success');
             }
           }}
           activeOpacity={0.7}
         >
           <View style={styles.actionRowLeft}>
-            <MaterialIcons name="sync" size={20} color={theme.colors.onSurfaceVariant} />
-            <Text style={styles.actionRowText}>Sync with HR Portal</Text>
+            <MaterialIcons name="save" size={20} color={theme.colors.onSurfaceVariant} />
+            <Text style={styles.actionRowText}>Create Internal Storage Backup</Text>
           </View>
           <MaterialIcons name="chevron-right" size={20} color={theme.colors.outline} />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.actionRow, { borderColor: 'rgba(186, 26, 26, 0.2)', borderWidth: 1 }]}
+          onPress={() => {
+            Alert.alert(
+              'Reset All App Data',
+              'Are you sure you want to erase all locally stored punches and settings from this phone? This cannot be undone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Erase All Data',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await api.clearAllData();
+                      showToast('Internal memory cleared. Default seed initialized.', 'info');
+                    } catch (err: any) {
+                      showToast(err.message || 'Error clearing data', 'error');
+                    }
+                  },
+                },
+              ]
+            );
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={styles.actionRowLeft}>
+            <MaterialIcons name="delete-forever" size={20} color={theme.colors.error} />
+            <Text style={[styles.actionRowText, { color: theme.colors.error }]}>Erase All Internal Data</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={theme.colors.error} />
+        </TouchableOpacity>
+
         {onLogout && (
           <TouchableOpacity
-            style={[styles.actionRow, { marginTop: 6, borderColor: 'rgba(186, 26, 26, 0.2)', borderWidth: 1 }]}
+            style={[styles.actionRow, { marginTop: 6 }]}
             onPress={async () => {
               await api.logout();
               showToast('Logged out of session', 'info');
@@ -332,10 +370,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ showToast, onLog
             activeOpacity={0.7}
           >
             <View style={styles.actionRowLeft}>
-              <MaterialIcons name="logout" size={20} color={theme.colors.error} />
-              <Text style={[styles.actionRowText, { color: theme.colors.error }]}>Log Out of Session</Text>
+              <MaterialIcons name="logout" size={20} color={theme.colors.onSurfaceVariant} />
+              <Text style={styles.actionRowText}>Log Out of Session</Text>
             </View>
-            <MaterialIcons name="chevron-right" size={20} color={theme.colors.error} />
+            <MaterialIcons name="chevron-right" size={20} color={theme.colors.outline} />
           </TouchableOpacity>
         )}
       </View>

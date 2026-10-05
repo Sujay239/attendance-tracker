@@ -33,6 +33,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  React.useEffect(() => {
+    setIsSetupMode(isInitialSetup);
+  }, [isInitialSetup]);
+
   const handleSubmit = async () => {
     setErrorMsg(null);
     setLoading(true);

@@ -34,7 +34,7 @@
     "web": "expo start --web",
     "server": "tsx server/index.ts",
     "test": "tsx server/__tests__/attendance.test.ts",
-    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,magenta.bold\" \"npm run server\" \"npm run web\""
+    "dev": "expo start"
   },
   "private": true
 }
